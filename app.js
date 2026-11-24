@@ -2599,6 +2599,8 @@
     document.body.dataset.tab = tab;
     $$('.view').forEach(v => v.classList.toggle('active', v.id === `view-${tab}`));
     $$('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    const moreBtn = $('.nav-more');
+    if (moreBtn) moreBtn.classList.toggle('active', ['daily', 'notes', 'budget'].includes(tab));
     const fabLabel = { home: 'Add', budget: 'Add', assets: 'Add Item', renewals: 'Add Renewal', daily: 'Add', notes: 'Add' };
     $('#fab .fab-text').textContent = tr(fabLabel[tab]);
     // Home and Daily Budget already have their own add buttons on the page.
@@ -2611,6 +2613,15 @@
   /* ------------------------------------------------------------------ */
   const handlers = {
     tab: el => switchTab(el.dataset.tab),
+    more: () => {
+      const items = [
+        ['daily', 'check', 'Routine', 'Habits, to-do, mood'],
+        ['notes', 'doc', 'Notes', 'Memos, lists, ideas'],
+        ['budget', 'wallet', 'Daily Budget', 'Set a monthly budget']
+      ];
+      openModal('More', `<div class="tiles">${items.map(x => `<button type="button" class="tile ${ui.tab === x[0] ? 'sel' : ''}" data-action="more-go" data-tab="${x[0]}"><span class="ti">${IC(x[1])}</span><span class="tl">${esc(tr(x[2]))}</span><small>${esc(tr(x[3]))}</small></button>`).join('')}</div>`);
+    },
+    'more-go': el => { closeModal(); switchTab(el.dataset.tab); },
     'note-new': () => openNote(),
     'note-open': el => openNote(el.dataset.id),
     'note-pin': el => {

@@ -344,6 +344,7 @@
   "Limits add up to {amount}, more than your budget.": "各类别上限加起来 {amount},超过了每月预算。",
   "Edit limits": "修改上限",
   "Suggested split applied. Tap Edit limits to change it.": "已按建议分配,可点「修改上限」调整。",
+  "More": "更多",
   "Step {a} of {b}": "第 {a} 步,共 {b} 步",
   "Cancel": "取消",
   "Confirm": "确认",
