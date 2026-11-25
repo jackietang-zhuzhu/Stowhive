@@ -387,7 +387,7 @@
         <div class="sheet" role="dialog" aria-modal="true">
           <div class="sheet-head">
             <h2>${esc(tr(title))}</h2>
-            <button class="icon-btn" data-action="close-modal" aria-label="Close">&times;</button>
+            <button class="icon-btn" data-action="close-modal" aria-label="${esc(tr('Close'))}">&times;</button>
           </div>
           <div class="sheet-body">${html}</div>
         </div>
@@ -536,17 +536,28 @@
       months[i].n++;
       if (e.kind === 'Billing' || e.kind === 'Renewal' || e.kind === 'PayLater') months[i].spend += e.amount;
     });
+    const idle = !evs.length;
+    const GHOST = [34, 52, 28, 66, 44, 80, 38, 58, 30, 72, 46, 60]; // placeholder skeleton heights (%)
     const max = Math.max(1, ...months.map(x => x.n));
     const busiest = months.reduce((b, x) => (x.n > b.n ? x : b), months[0]);
-    return `<div class="tline ${evs.length ? '' : 'idle'}">${months.map((x, i) => `
+    const cols = months.map((x, i) => {
+      const h = idle ? GHOST[i] : (x.n ? 12 + Math.round(x.n / max * 88) : 4);
+      return `
         <button type="button" class="tl-col ${i === 0 ? 'cur' : ''}" data-action="cal-goto" data-month="${x.iso}" title="${esc(x.long)}: ${esc(tr('{n} due', { n: x.n }))}">
           <span class="tl-n">${x.n || ''}</span>
-          <span class="tl-track"><span class="tl-bar ${x.n ? 'on' : ''}" style="height:${x.n ? 12 + Math.round(x.n / max * 88) : 4}%"></span></span>
+          <span class="tl-track"><span class="tl-bar ${x.n ? 'on' : ''} ${idle ? 'ghost' : ''}" style="height:${h}%"></span></span>
           <span class="tl-m">${esc(x.label)}</span>
-        </button>`).join('')}</div>
-      <p class="panel-note">${busiest.n
-        ? `${esc(tr('Busiest month'))}: <b>${esc(busiest.long)}</b> &middot; ${esc(tr('{n} due', { n: busiest.n }))}${busiest.spend ? ' &middot; ' + esc(money(busiest.spend)) : ''}. ${esc(tr('Tap a month to open it in the calendar.'))}`
-        : esc(tr('No data yet. Bars appear here once something has a due date.'))}</p>`;
+        </button>`;
+    }).join('');
+    const emptyOverlay = idle ? `
+      <div class="tl-empty">
+        <span class="tl-empty-ic">${IC('cal')}</span>
+        <b>${esc(tr('Nothing due yet'))}</b>
+        <span>${esc(tr('No data yet. Bars appear here once something has a due date.'))}</span>
+        <button type="button" class="btn small" data-action="home-add" data-kind="renewal">${esc(tr('Add a bill or date'))}</button>
+      </div>` : '';
+    return `<div class="tline-wrap ${idle ? 'idle' : ''}"><div class="tline ${idle ? 'idle' : ''}">${cols}</div>${emptyOverlay}</div>
+      ${idle ? '' : `<p class="panel-note">${esc(tr('Busiest month'))}: <b>${esc(busiest.long)}</b> &middot; ${esc(tr('{n} due', { n: busiest.n }))}${busiest.spend ? ' &middot; ' + esc(money(busiest.spend)) : ''}. ${esc(tr('Tap a month to open it in the calendar.'))}</p>`}`;
   }
 
   const schSorted = list => list.slice().sort((a, b) =>
@@ -603,34 +614,40 @@
       const iso = toISO(new Date(y, m, d));
       const n = (byDay[iso] || []).length;
       const sn = (schByDay[iso] || []).length;
-      cells += `<button type="button" class="cal-day ${iso === today ? 'today' : ''} ${iso === ui.calSel ? 'sel' : ''} ${n || sn ? 'has' : ''} ${n ? urgency(daysUntil(iso)) : ''}" data-action="cal-day" data-date="${iso}"><span>${d}</span>${n || sn ? `<span class="cal-dots">${n ? '<i class="cal-dot"></i>' : ''}${sn ? '<i class="cal-dot sch"></i>' : ''}</span>` : ''}</button>`;
+      const jm = journalOn(iso), mf = jm && Number(jm.mood) ? window.SHI.face(jm.mood) : '';
+      cells += `<button type="button" class="cal-day ${iso === today ? 'today' : ''} ${iso === ui.calSel ? 'sel' : ''} ${n || sn ? 'has' : ''} ${mf ? 'has-mood' : ''} ${n ? urgency(daysUntil(iso)) : ''}" data-action="cal-day" data-date="${iso}"><span>${d}</span>${mf ? `<span class="cal-mood">${mf}</span>` : ''}${n || sn ? `<span class="cal-dots">${n ? '<i class="cal-dot"></i>' : ''}${sn ? '<i class="cal-dot sch"></i>' : ''}</span>` : ''}</button>`;
     }
     const picked = ui.calSel && ui.calSel >= start && ui.calSel <= end;
     const list = picked ? (byDay[ui.calSel] || []) : evs;
-    const title = picked ? fmtDate(ui.calSel) : `${first.toLocaleDateString(LOCALE(), { month: 'long' })}: ${evs.length} due`;
+    const title = picked ? fmtDate(ui.calSel) : `${first.toLocaleDateString(LOCALE(), { month: 'long' })}: ${tr('{n} due', { n: evs.length })}`;
     const daySch = picked ? schSorted(schByDay[ui.calSel] || []) : [];
+    const emptyHtml = (icon, txt) => `<div class="cal-empty">${IC(icon)}<span>${esc(txt)}</span></div>`;
+    const dueHtml = l => (l.length ? l.map(evRow).join('') : emptyHtml('check', tr('Nothing due.')));
     const listHtml = picked ? `
       <div class="cal-list"><h4>${esc(title)}</h4>
-        <div class="sch-block">
+        <form id="sch-form" class="sch-form" data-date="${ui.calSel}" autocomplete="off">
+          <input name="title" type="text" maxlength="80" placeholder="${esc(tr('Add to schedule (e.g. Dentist)'))}" aria-label="${esc(tr('My schedule'))}" required>
+          <input name="time" type="text" inputmode="none" autocomplete="off" maxlength="5" placeholder="HH:MM" aria-label="${esc(tr('Time'))}" title="${esc(tr('Time'))} (24h)">
+          ${repPick('')}
+          <button type="submit" class="btn small">${esc(tr('Add'))}</button>
+        </form>
+        <div class="cal-sec sch-block">
           <h5 class="cal-sub">${esc(tr('My schedule'))}</h5>
-          ${daySch.length ? daySch.map(x => schRow(x, ui.calSel)).join('') : `<p class="panel-note">${esc(tr('Nothing planned.'))}</p>`}
-          <form id="sch-form" class="sch-form" data-date="${ui.calSel}" autocomplete="off">
-            <input name="title" type="text" maxlength="80" placeholder="${esc(tr('Add to schedule (e.g. Dentist)'))}" aria-label="${esc(tr('My schedule'))}" required>
-            <input name="time" type="text" inputmode="none" autocomplete="off" maxlength="5" placeholder="HH:MM" aria-label="${esc(tr('Time'))}" title="${esc(tr('Time'))} (24h)">
-            ${repPick('')}
-            <button type="submit" class="btn small">${esc(tr('Add'))}</button>
-          </form>
+          ${daySch.length ? daySch.map(x => schRow(x, ui.calSel)).join('') : emptyHtml('cal', tr('Nothing planned.'))}
         </div>
-        <h5 class="cal-sub">${esc(tr('Due this day'))}</h5>
-        ${list.length ? list.map(evRow).join('') : `<p class="panel-note">${esc(tr('Nothing due.'))}</p>`}
+        <div class="cal-sec due-block">
+          <h5 class="cal-sub">${esc(tr('Due this day'))}</h5>
+          ${dueHtml(list)}
+        </div>
+        ${(() => { const j = journalOn(ui.calSel); if (!j || !(Number(j.mood) || j.text)) return ''; return `<div class="cal-sec diary-block"><h5 class="cal-sub">${esc(tr('Diary'))}</h5><div class="cal-diary">${Number(j.mood) ? `<span class="j-mood">${window.SHI.face(j.mood)}</span>` : ''}<span class="j-text">${esc(j.text || '')}</span></div></div>`; })()}
       </div>`
-      : `<div class="cal-list"><h4>${esc(title)}</h4>${list.length ? list.map(evRow).join('') : `<p class="panel-note">${esc(tr('Nothing due.'))}</p>`}
+      : `<div class="cal-list"><h4>${esc(title)}</h4>${dueHtml(list)}
         <p class="panel-note">${esc(tr('Tap a day to see or add your schedule.'))}</p></div>`;
     return `<div id="cal">
       <div class="cal-head">
-        <button type="button" class="icon-btn" data-action="cal-nav" data-d="-1" aria-label="Previous month">&#8249;</button>
-        <b>${esc(first.toLocaleDateString(LOCALE(), { month: 'long', year: 'numeric' }))}</b>
-        <button type="button" class="icon-btn" data-action="cal-nav" data-d="1" aria-label="Next month">&#8250;</button>
+        <button type="button" class="icon-btn" data-action="cal-nav" data-d="-1" aria-label="${esc(tr('Previous month'))}">&#8249;</button>
+        <span class="cal-title"><b>${esc(first.toLocaleDateString(LOCALE(), { month: 'long', year: 'numeric' }))}</b>${ui.calMonth !== todayISO().slice(0, 8) + '01' ? `<button type="button" class="cal-today" data-action="cal-today" title="${esc(tr('Back to today'))}">${esc(tr('Today'))}</button>` : ''}</span>
+        <button type="button" class="icon-btn" data-action="cal-nav" data-d="1" aria-label="${esc(tr('Next month'))}">&#8250;</button>
       </div>
       <div class="cal-grid">${Array.from({ length: 7 }, (_, i) => new Date(2024, 0, 1 + i).toLocaleDateString(LOCALE(), { weekday: 'narrow' })).map(w => `<span class="cal-w">${w}</span>`).join('')}${cells}</div>
       ${listHtml}
@@ -755,12 +772,12 @@
         <h3>${esc(tr('Get started in 2 steps'))}<small class="zh">${n}/${steps.length}</small></h3>
         <button type="button" class="link-btn" data-action="start-hide">${esc(tr('Hide'))}</button>
       </div>
-      ${steps.map((s, i) => `
+      <div class="start-steps">${steps.map((s, i) => `
         <button type="button" class="start-step ${s.done ? 'done' : ''}" data-action="home-add" data-kind="${s.kind}">
           <span class="st-n">${s.done ? '&#10003;' : i + 1}</span>
           <span class="st-t"><b>${esc(tr(s.en))}</b><small>${esc(tr(s.ex))}</small></span>
           <span class="st-go" aria-hidden="true">+</span>
-        </button>`).join('')}
+        </button>`).join('')}</div>
       ${hasSample() ? '' : `<div class="start-sample">
         <span>${esc(tr('Want to look around first?'))}</span>
         <button type="button" class="btn small ghost" data-action="load-sample">${esc(tr('Try sample data'))}</button>
@@ -869,7 +886,7 @@
     const tot = sumAmt(list);
     if (!tot) return '';
     const rows = expCatTotals(list), caps = (db.budget && db.budget.caps) || {}, pal = window.SHI.pal;
-    return `<div class="cat-bd"><h4>${esc(title)}</h4><div class="cat-wrap">${window.SHI.donut(rows.map(r => ({ v: r.total, k: EXP_CATS.indexOf(r.c) })))}<div class="cat-rows">${rows.map(r => {
+    return `<div class="cat-bd"><h4>${esc(title)}</h4><div class="cat-wrap">${rows.length > 1 ? window.SHI.donut(rows.map(r => ({ v: r.total, k: EXP_CATS.indexOf(r.c) }))) : ''}<div class="cat-rows">${rows.map(r => {
       const pct = Math.round(r.total / tot * 100), cap = caps[r.c.k], over = cap && r.total > cap;
       return `<div class="cat-row"><span class="cat-n"><i class="sw" style="background:${pal[EXP_CATS.indexOf(r.c)]}"></i>${r.c.i} ${esc(tr(r.c.en))}</span>
         <span class="cat-bar ${over ? 'over' : ''}"><i style="width:${cap ? Math.min(100, Math.round(r.total / cap * 100)) : Math.max(pct, 3)}%"></i></span>
@@ -958,6 +975,18 @@
       <button type="button" class="link-btn" data-action="budget-set" data-caps="1">${esc(tr('Edit limits'))}</button></div>`;
   }
 
+  // Expense entry form. id is 'exp-form' on the Budget page and 'qa-exp' inside the Quick Add dialog.
+  const expFormHtml = (id, today) => `
+      <form id="${id}" class="exp-form" autocomplete="off">
+        <div class="cat-pick" role="radiogroup" aria-label="${esc(tr('Category'))}">${EXP_CATS.map(c =>
+          `<label class="cat-chip"><input type="radio" name="cat" value="${c.k}" ${c.k === (ui.lastCat || 'food') ? 'checked' : ''}><span>${c.i} ${esc(tr(c.en))}</span></label>`).join('')}</div>
+        <input name="amount" type="number" inputmode="decimal" step="0.01" min="0.01" max="99999999" placeholder="${esc(tr('Amount'))} (${CURRENCY})" aria-label="${esc(tr('Amount'))}" required>
+        <input name="note" type="text" maxlength="60" placeholder="${esc(tr('Spent on what? (optional)'))}" aria-label="${esc(tr('Spent on what? (optional)'))}">
+        <input name="date" type="date" value="${today}" aria-label="${esc(tr('Date'))}" required>
+        <label class="check rep-chk"><input type="checkbox" name="rep"> <span>${esc(tr('Repeat every month'))}</span></label>
+        <button type="submit" class="btn primary">${esc(tr('Add spending'))}</button>
+      </form>`;
+
   function budgetHtml(limit = 5) {
     const s = expenseStats();
     const has = s.budget > 0;
@@ -981,19 +1010,11 @@
         <div><span>${esc(tr('Daily average'))}</span><b>${esc(money(s.avg))}</b></div>
       </div>
       ${budgetPlanHtml(s)}
-      ${catBreakdownHtml(db.expenses.filter(e => monthOf(e.date) === s.ym), tr('Where it went this month'))}
+      ${Object.values((db.budget && db.budget.caps) || {}).some(v => v > 0) ? '' : catBreakdownHtml(db.expenses.filter(e => monthOf(e.date) === s.ym), tr('Where it went this month'))}
       ${has ? '' : `<p class="panel-note">${esc(tr('Set a monthly budget to see how much you can spend each day.'))}</p>`}
       ${s.bills > 0 ? `<p class="panel-note">${esc(tr('Bills & subscriptions still due this month: {amount} (not counted above)', { amount: money(s.bills) }))}</p>` : ''}
       </div><div class="bd-r">
-      <form id="exp-form" class="exp-form" autocomplete="off">
-        <div class="cat-pick" role="radiogroup" aria-label="${esc(tr('Category'))}">${EXP_CATS.map(c =>
-          `<label class="cat-chip"><input type="radio" name="cat" value="${c.k}" ${c.k === (ui.lastCat || 'food') ? 'checked' : ''}><span>${c.i} ${esc(tr(c.en))}</span></label>`).join('')}</div>
-        <input name="amount" type="number" inputmode="decimal" step="0.01" min="0.01" max="99999999" placeholder="${esc(tr('Amount'))} (${CURRENCY})" aria-label="${esc(tr('Amount'))}" required>
-        <input name="note" type="text" maxlength="60" placeholder="${esc(tr('Spent on what? (optional)'))}" aria-label="${esc(tr('Spent on what? (optional)'))}">
-        <input name="date" type="date" value="${s.today}" aria-label="${esc(tr('Date'))}" required>
-        <label class="check rep-chk"><input type="checkbox" name="rep"> <span>${esc(tr('Repeat every month'))}</span></label>
-        <button type="submit" class="btn primary">${esc(tr('Add spending'))}</button>
-      </form>
+      ${expFormHtml('exp-form', s.today)}
       ${recent.length ? `<div class="exp-list">${recent.map(x => expenseRow(x)).join('')}</div>
         <button type="button" class="link-btn" data-action="exp-all">${esc(tr('See all spending'))}</button>`
         : `<p class="panel-note">${esc(tr('No spending logged yet. Add what you spent today.'))}</p>`}
@@ -1057,9 +1078,9 @@
     const label = parseISO(ym + '-01').toLocaleDateString(LOCALE(), { month: 'long', year: 'numeric' });
     return `<div id="exp-modal">
       <div class="cal-head">
-        <button type="button" class="icon-btn" data-action="exp-month" data-d="-1" aria-label="Previous month">&#8249;</button>
+        <button type="button" class="icon-btn" data-action="exp-month" data-d="-1" aria-label="${esc(tr('Previous month'))}">&#8249;</button>
         <b>${esc(label)}</b>
-        <button type="button" class="icon-btn" data-action="exp-month" data-d="1" aria-label="Next month" ${ym >= cur ? 'disabled' : ''}>&#8250;</button>
+        <button type="button" class="icon-btn" data-action="exp-month" data-d="1" aria-label="${esc(tr('Next month'))}" ${ym >= cur ? 'disabled' : ''}>&#8250;</button>
       </div>
       <div class="bd-stats">
         <div><span>${esc(tr('Total'))}</span><b>${esc(money(total))}</b></div>
@@ -1091,7 +1112,13 @@
 
   // Time picker: tap a time box to pick hour and minute from two lists (typing still works).
   let tpEl = null, tpInput = null;
-  function closeTimePicker() { if (tpEl) { tpEl.remove(); tpEl = null; tpInput = null; } }
+  // Closing also releases focus from the time box, so tapping it again always opens the picker (phones).
+  function closeTimePicker(keepFocus) {
+    if (!tpEl) return;
+    const inp = tpInput;
+    tpEl.remove(); tpEl = null; tpInput = null;
+    if (inp && keepFocus !== true) { try { inp.blur(); } catch (x) { /* ignore */ } }
+  }
   function openTimePicker(input) {
     if (tpInput === input && tpEl) return;
     closeTimePicker();
@@ -1134,8 +1161,8 @@
   document.addEventListener('focusin', e => { if (isTimeBox(e.target)) openTimePicker(e.target); });
   document.addEventListener('click', e => { if (isTimeBox(e.target)) openTimePicker(e.target); });
   document.addEventListener('pointerdown', e => { if (tpEl && !tpEl.contains(e.target) && e.target !== tpInput) closeTimePicker(); });
-  document.addEventListener('keydown', e => { if (tpEl && (e.key === 'Escape' || e.key === 'Tab')) closeTimePicker(); });
-  window.addEventListener('resize', closeTimePicker);
+  document.addEventListener('keydown', e => { if (tpEl && (e.key === 'Escape' || e.key === 'Tab')) closeTimePicker(e.key === 'Tab'); });
+  window.addEventListener('resize', () => closeTimePicker(true));
 
   // Edit a schedule item: change the title, date, time or how it repeats.
   function openSchEdit(id) {
@@ -1189,6 +1216,16 @@
     }
   });
 
+  // Diary date box: load the entry of the chosen day so it can be changed.
+  document.addEventListener('change', e => {
+    const el = e.target;
+    if (!el.matches || !el.matches('#journal-form [name="date"]')) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(el.value) || el.value > todayISO()) { el.value = ui.jDate || todayISO(); return; }
+    if (ui.jEdit) return; // editing an entry: the new date is applied when Save is pressed
+    ui.jDate = el.value === todayISO() ? null : el.value;
+    renderDaily();
+  });
+
   document.addEventListener('input', e => {
     const el = e.target;
     if (!el.matches || !el.matches('.exp-q')) return;
@@ -1197,7 +1234,8 @@
   });
 
   document.addEventListener('submit', e => {
-    if (e.target.id !== 'exp-form') return;
+    const qa = e.target.id === 'qa-exp';
+    if (e.target.id !== 'exp-form' && !qa) return;
     e.preventDefault();
     const f = Object.fromEntries(new FormData(e.target));
     const amount = Math.round(Number(f.amount) * 100) / 100;
@@ -1212,9 +1250,10 @@
       if (rid) db.budget = { ...db.budget, recurring: [...(db.budget.recurring || []), { id: rid, amount, note, cat, day: Number(date.slice(8)), start: monthOf(date) }], updatedAt: new Date().toISOString() };
       db.expenses.push({ id: rid ? `rx-${rid}-${monthOf(date)}` : uid(), date, amount, note, cat, ...(rid ? { rec: 1 } : {}), createdAt: new Date().toISOString() });
     })) {
+      if (qa) closeModal();
       refreshSpending();
       toast(tr('Added {amount}', { amount: money(amount) }));
-      try { if (matchMedia('(hover: hover)').matches) { const a = $('#exp-form [name="amount"]'); if (a) a.focus(); } } catch (x) { /* ignore */ }
+      try { if (!qa && matchMedia('(hover: hover)').matches) { const a = $('#exp-form [name="amount"]'); if (a) a.focus(); } } catch (x) { /* ignore */ }
     }
   });
 
@@ -1244,12 +1283,42 @@
       <small>${esc(n ? tr('{n} notes', { n }) : tr('Memos, lists, ideas'))}</small></button>`;
   }
 
+  // Desktop home: a bar of high-frequency actions (the sidebar already lists the pages).
+  function quickBarHtml() {
+    const s = expenseStats();
+    const has = s.budget > 0;
+    const pct = has ? Math.round(s.spent / s.budget * 100) : 0;
+    const tone = !has ? '' : s.spent > s.budget ? 'over' : pct >= 80 ? 'warn' : '';
+    const t = todayISO(), hs = activeHabits().filter(h => habitSched(h, t));
+    const n = hs.filter(h => habitDone(h, t)).length;
+    const hp = hs.length ? Math.round(n / hs.length * 100) : 0;
+    const tile = (action, extra, icon, label, sub, side) => `
+      <button type="button" class="qk-tile" data-action="${action}" ${extra}>
+        <span class="qk-ic">${IC(icon)}</span>
+        <span class="qk-tx"><b>${esc(label)}</b><small>${sub}</small></span>${side || ''}
+      </button>`;
+    return `<div class="home-quick" role="group" aria-label="${esc(tr('Quick actions'))}">
+      ${tile('qa-spend', '', 'wallet', tr('Log spending'), `${esc(tr('Today'))} ${esc(money(s.todaySum))}`,
+        has ? `<span class="tile-meter ${tone}"><i style="width:${Math.min(pct, 100)}%"></i></span>` : '')}
+      ${tile('note-new', '', 'doc', tr('New note'), esc(db.notes.length ? tr('{n} notes', { n: db.notes.length }) : tr('Memos, lists, ideas')))}
+      ${tile('home-add', 'data-kind="asset"', 'box', tr('Add item'), esc(tr('Where it is, warranty')))}
+      ${tile('home-add', 'data-kind="renewal"', 'bell', tr('Add bill / date'), esc(tr('Bills, ID, insurance')))}
+      ${tile('tab', 'data-tab="daily"', 'check', tr('Routine'),
+        esc(hs.length ? tr('{a}/{b} habits', { a: n, b: hs.length }) : tr('Habits, to-do, mood')),
+        hs.length ? `<span class="qk-ring">${window.SHI.ring(hp, '', n + '/' + hs.length, 42)}</span>` : '')}
+    </div>`;
+  }
+
+  function openSpendQuick() {
+    openModal('Log spending', expFormHtml('qa-exp', todayISO()), () => focusIn('#qa-exp [name="amount"]'));
+  }
   function renderHome() {
     if (!ui.calMonth) ui.calMonth = todayISO().slice(0, 8) + '01';
     if (!ui.calInit) { ui.calInit = true; ui.calSel = todayISO(); }
     $('#home').innerHTML = `
       ${sampleBarHtml()}
       ${startCardHtml()}
+      ${quickBarHtml()}
       <div class="home-add">
           ${dailyTileHtml()}
           ${notesTileHtml()}
@@ -1765,7 +1834,7 @@
     const html = `
       <form id="maint-form">
         ${fInput('Service date', 'date', 'date', todayISO(), 'required')}
-        ${fText('Note', 'note', '', 2, 'placeholder="What was done?"')}
+        ${fText('Note', 'note', '', 2, `placeholder="${esc(tr('What was done?'))}"`)}
         <p class="card-sub">${a.maintenanceCycleMonths
           ? esc(tr('The next service date will be set {n} month(s) after this date.', { n: a.maintenanceCycleMonths }))
           : esc(tr('No cycle is set, so the next service date will be cleared.'))}</p>
@@ -2221,12 +2290,12 @@
 
   const backupSection = () => settingsSection() + `
     <div class="backup">
-      <h4>Backup</h4>
-      <p class="card-sub">Save a copy of your data, or restore one. Import replaces everything on this device.</p>
+      <h4>${esc(tr('Backup'))}</h4>
+      <p class="card-sub">${esc(tr('Save a copy of your data, or restore one. Import replaces everything on this device.'))}</p>
       <div class="card-actions">
-        <button type="button" class="btn small ghost" data-bk="json">Export JSON</button>
-        <button type="button" class="btn small ghost" data-bk="csv">Export CSV</button>
-        <button type="button" class="btn small ghost" data-bk="import">Import JSON</button>
+        <button type="button" class="btn small ghost" data-bk="json">${esc(tr('Export JSON'))}</button>
+        <button type="button" class="btn small ghost" data-bk="csv">${esc(tr('Export CSV'))}</button>
+        <button type="button" class="btn small ghost" data-bk="import">${esc(tr('Import JSON'))}</button>
       </div>
       <input type="file" id="bk-file" accept=".json,application/json" hidden>
     </div>`;
@@ -2257,7 +2326,7 @@
       if (!next) { toast('This is not a Stowhive backup file'); return; }
       const ok = await confirmDialog({
         title: 'Replace all data?',
-        message: `This device will be replaced with the backup: ${next.assets.length} item(s), ${next.renewals.length} renewal(s), ${next.expenses.length} spending entries.${Cloud.user ? ' Your cloud copy will be replaced too.' : ''} Export first if you want to keep the current data.`,
+        message: tr('This device will be replaced with the backup: {a} item(s), {b} renewal(s), {c} spending entries.', { a: next.assets.length, b: next.renewals.length, c: next.expenses.length }) + (Cloud.user ? ' ' + tr('Your cloud copy will be replaced too.') : '') + ' ' + tr('Export first if you want to keep the current data.'),
         confirmLabel: 'Replace'
       });
       if (!ok) return;
@@ -2280,7 +2349,13 @@
   const HABIT_IDEAS = ['Drink water', 'Exercise', 'Read', 'Sleep early', 'Take vitamins'];
 
   const habitDone = (h, iso) => (h.dates || []).includes(iso);
-  const habitSched = (h, iso) => !(h.days && h.days.length) || h.days.includes(parseISO(iso).getDay());
+  // A habit only counts from the day it was created (days before that are neither "missed" nor in the stats).
+  const habitStart = h => (h.createdAt ? toISO(new Date(h.createdAt)) : '');
+  const habitSched = (h, iso) => {
+    const st = habitStart(h);
+    if (st && iso < st && !habitDone(h, iso)) return false;
+    return !(h.days && h.days.length) || h.days.includes(parseISO(iso).getDay());
+  };
   const wdNarrow = i => new Date(2024, 0, 7 + i).toLocaleDateString(LOCALE(), { weekday: 'narrow' });
   const habitStreak = h => {
     let d = todayISO(), n = 0;
@@ -2300,7 +2375,7 @@
     const n = habitStreak(h);
     return `<div class="hb-row ${done ? 'done' : ''} ${habitSched(h, todayISO()) ? '' : 'rest'}">
       <button type="button" class="sch-check" data-action="hb-toggle" data-id="${esc(h.id)}" role="checkbox" aria-checked="${done ? 'true' : 'false'}" aria-label="${esc(h.name)}">${done ? '&#10003;' : ''}</button>
-      <div class="hb-main"><span class="hb-name">${esc(h.name)}${h.days && h.days.length ? ` <small class="wd-tag">${h.days.slice().sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7)).map(wdNarrow).join(' ')}</small>` : ''}</span><span class="hb-dots">${last7().map(d => `<i class="${habitDone(h, d) ? 'on' : habitSched(h, d) ? '' : 'off'}"></i>`).join('')}</span></div>
+      <div class="hb-main"><span class="hb-name">${esc(h.name)}</span><span class="hb-days" role="group" aria-label="${esc(tr('Repeat'))}">${[1, 2, 3, 4, 5, 6, 0].map(i => `<button type="button" class="hb-day ${!(h.days && h.days.length) || h.days.includes(i) ? 'on' : ''}" data-action="hb-day" data-id="${esc(h.id)}" data-d="${i}">${esc(wdNarrow(i))}</button>`).join('')}</span><span class="hb-dots">${last7().map(d => `<i class="${habitDone(h, d) ? 'on' : habitSched(h, d) ? '' : 'off'}"></i>`).join('')}</span></div>
       <span class="hb-streak">${n ? IC('flame') + ' ' + esc(tr('{n} day streak', { n })) : ''}</span>
       <button type="button" class="icon-btn" data-action="hb-del" data-id="${esc(h.id)}" aria-label="${esc(tr('Delete'))}">&times;</button>
     </div>`;
@@ -2313,6 +2388,28 @@
     </div>`;
 
   const journalOn = iso => db.journal.find(j => j.date === iso);
+  // Move a diary entry to another day. If that day already has one, ask before replacing it.
+  async function moveDiary(id, date, mood, text) {
+    const target = db.journal.find(j => j.date === date && j.id !== id);
+    if (target) {
+      const ok = await confirmDialog({
+        title: tr('Replace the entry on {d}?', { d: fmtDate(date) }),
+        message: tr('That day already has a diary entry. It will be replaced.'),
+        confirmLabel: tr('Replace')
+      });
+      if (!ok) return;
+    }
+    if (commit(() => {
+      db.journal = db.journal.filter(j => j.id !== id && !(target && j.id === target.id));
+      db.journal.push({ id: 'j' + date, date, mood, text, createdAt: new Date().toISOString() });
+    })) {
+      ui.jEdit = null;
+      ui.jDate = date === todayISO() ? null : date;
+      renderDaily(); renderHome(); toast(tr('Saved'));
+    }
+  }
+  // Date the diary form is writing for: any past day or today, never the future.
+  const jDateOf = v => (/^\d{4}-\d{2}-\d{2}$/.test(v || '') && v <= todayISO() ? v : todayISO());
 
   function dailyTileHtml() {
     const t = todayISO(), hs = activeHabits().filter(h => habitSched(h, t));
@@ -2329,32 +2426,28 @@
 
   function habitReportHtml() {
     const hs = activeHabits();
-    if (!hs.length) return '';
+    if (!hs.length) {
+      // Keep the card (and the page layout) even with no habits yet.
+      const strip0 = Array.from({ length: 7 }, (_, i) => `<span class="wk-d none"><i></i><small>${esc(wdNarrow((i + 1) % 7))}</small></span>`).join('');
+      return `<section class="panel"><h3>${esc(tr('Weekly report'))}<small>${esc(tr('This week'))}</small></h3><div class="pn-body">
+        <p class="panel-note">${esc(tr('No habits yet. Add one and your weekly check-in report will show up here.'))}</p>
+        <h5 class="cal-sub">${esc(tr('Each day this week'))}</h5><div class="wk-strip">${strip0}</div></div></section>`;
+    }
     const t = todayISO(), ws = addDays(t, -((parseISO(t).getDay() + 6) % 7)), lw = addDays(ws, -7), lwEnd = addDays(ws, -1);
     const stat = (h, from, to) => { let a = 0, b = 0; for (let x = from; x <= to; x = addDays(x, 1)) if (habitSched(h, x)) { a++; if (habitDone(h, x)) b++; } return { s: a, d: b }; };
     let ts = 0, td = 0, ls = 0, ld = 0;
     const rows = hs.map(h => { const a = stat(h, ws, t), b = stat(h, lw, lwEnd); ts += a.s; td += a.d; ls += b.s; ld += b.d;
       return `<div class="cat-row"><span class="cat-n">${esc(h.name)}</span><span class="cat-bar"><i style="width:${a.s ? Math.round(a.d / a.s * 100) : 0}%"></i></span><span class="cat-v">${a.d}/${a.s}</span></div>`; }).join('');
     const pct = ts ? Math.round(td / ts * 100) : 0, lp = ls ? Math.round(ld / ls * 100) : null;
-    const weeks = [];
-    for (let w = 11; w >= 0; w--) {
-      const col = [];
-      for (let i = 0; i < 7; i++) {
-        const d = addDays(ws, -7 * w + i);
-        const sc = d > t ? [] : hs.filter(h => habitSched(h, d));
-        col.push(sc.length ? sc.filter(h => habitDone(h, d)).length / sc.length : -1);
-      }
-      weeks.push(col);
-    }
-    return `<section class="panel span-all"><h3>${esc(tr('Weekly report'))}<small>${esc(tr('This week'))}</small></h3><div class="pn-body">
+    const strip = Array.from({ length: 7 }, (_, i) => {
+      const d = addDays(ws, i), sc = d > t ? [] : hs.filter(h => habitSched(h, d)), dn = sc.filter(h => habitDone(h, d)).length;
+      const st = d > t || !sc.length ? 'none' : dn === sc.length ? 'full' : dn > 0 ? 'part' : 'zero';
+      return `<span class="wk-d ${st} ${d === t ? 'now' : ''}"><i>${st === 'full' ? '\u2713' : ''}</i><small>${esc(wdNarrow((i + 1) % 7))}</small></span>`;
+    }).join('');
+    return `<section class="panel"><h3>${esc(tr('Weekly report'))}<small>${esc(tr('This week'))}</small></h3><div class="pn-body">
       <div class="wr-top">${window.SHI.ring(pct, pct < 40 ? 'warn' : '', pct + '%', 72)}<p>${esc(tr('{a} of {b} habit check-ins done this week', { a: td, b: ts }))}${lp != null ? `<br><small>${esc(tr('Last week: {n}%', { n: lp }))}</small>` : ''}</p></div>
-      ${rows}<h5 class="cal-sub">${esc(tr('Last 12 weeks'))}</h5>${window.SHI.heat(weeks)}</div></section>`;
+      ${rows}<h5 class="cal-sub">${esc(tr('Each day this week'))}</h5><div class="wk-strip">${strip}</div><p class="panel-note">${esc(tr('Tick = all habits done that day. Half = some done.'))}</p></div></section>`;
   }
-  function moodSparkHtml() {
-    const t = todayISO(), vals = Array.from({ length: 30 }, (_, i) => { const j = journalOn(addDays(t, i - 29)); return j && Number(j.mood) ? Number(j.mood) : null; });
-    return vals.filter(Boolean).length >= 2 ? `<div class="mood-trend"><small>${esc(tr('Mood, last 30 days'))}</small>${window.SHI.spark(vals)}</div>` : '';
-  }
-
   function renderDaily() {
     const el = $('#daily');
     if (!el) return;
@@ -2364,11 +2457,12 @@
     const doneN = hsT.filter(h => habitDone(h, t)).length;
     const open = db.todos.filter(x => !x.done);
     const done = db.todos.filter(x => x.done).sort((a, b) => (b.doneAt || '').localeCompare(a.doneAt || ''));
-    const cur = journalOn(t);
+    if (ui.jEdit && !db.journal.some(j => j.id === ui.jEdit)) ui.jEdit = null;
+    const jd = ui.jDate && ui.jDate <= t ? ui.jDate : t;
+    const cur = journalOn(jd);
     const sel = cur ? Number(cur.mood) || 0 : 0;
     const ideas = HABIT_IDEAS.filter(n => !db.habits.some(h => h.name === tr(n)));
-    const recent = db.journal.filter(j => j.date !== t || !cur).concat(cur ? [cur] : [])
-      .sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10);
+    const recent = db.journal.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10);
 
     el.innerHTML = `<div class="daily-grid">
       <section class="panel">
@@ -2379,7 +2473,7 @@
         </div>
         <form id="habit-form" class="mini-form" autocomplete="off">
           <input name="name" type="text" maxlength="60" placeholder="${esc(tr('Add a habit (e.g. Drink water)'))}" aria-label="${esc(tr('Habits'))}" required>
-          <div class="wk-pick" role="group" aria-label="${esc(tr('Repeat'))}">${[1, 2, 3, 4, 5, 6, 0].map(i => `<label><input type="checkbox" name="wd" value="${i}" checked><span>${esc(wdNarrow(i))}</span></label>`).join('')}</div>
+          <div class="wk-pick" role="group" aria-label="${esc(tr('Repeat'))}"><span class="wk-lab">${esc(tr('New habit repeats on'))}</span>${[1, 2, 3, 4, 5, 6, 0].map(i => `<label><input type="checkbox" name="wd" value="${i}" checked><span>${esc(wdNarrow(i))}</span></label>`).join('')}</div>
           <button type="submit" class="btn small">${esc(tr('Add'))}</button>
         </form>
       </section>
@@ -2397,22 +2491,29 @@
       <section class="panel">
         <h3>${esc(tr('Mood & diary'))}</h3>
         <form id="journal-form" class="j-form" autocomplete="off">
+          <div class="j-date-row"><input name="date" type="date" value="${jd}" max="${t}" aria-label="${esc(tr('Date'))}" required>${jd !== t || ui.jEdit ? `<button type="button" class="link-btn" data-action="j-today">${esc(tr(ui.jEdit ? 'Cancel' : 'Today'))}</button>` : ''}</div>
+          ${ui.jEdit ? `<p class="panel-note">${esc(tr('Change the date to move this entry.'))}</p>` : ''}
           <div class="mood-row">${MOODS.map(m => `<button type="button" class="mood-btn ${sel === m.v ? 'on' : ''}" data-action="mood-pick" data-v="${m.v}" title="${esc(tr(m.en))}" aria-label="${esc(tr(m.en))}">${m.i}</button>`).join('')}</div>
           <input type="hidden" name="mood" value="${sel || ''}">
-          <input name="text" type="text" maxlength="120" placeholder="${esc(tr('One line about today...'))}" value="${esc(cur ? cur.text : '')}" aria-label="${esc(tr('Mood & diary'))}">
+          <input name="text" type="text" maxlength="120" placeholder="${esc(tr(jd === t ? 'One line about today...' : 'One line about this day...'))}" value="${esc(cur ? cur.text : '')}" aria-label="${esc(tr('Mood & diary'))}">
           <button type="submit" class="btn small">${esc(tr('Save'))}</button>
         </form>
+      </section>
+    </div>
+    <div class="daily-grid daily-low">
+      ${habitReportHtml()}
+      <section class="panel">
+        <h3>${esc(tr('Diary'))}</h3>
         <div class="pn-body">
-        ${moodSparkHtml()}<h5 class="cal-sub">${esc(tr('Recent days'))}</h5>
-        ${recent.length ? recent.map(j => `<div class="j-row">
-          <span class="j-date">${esc(parseISO(j.date).toLocaleDateString(LOCALE(), { day: 'numeric', month: 'short' }))}</span>
-          <span class="j-mood">${moodOf(j.mood) ? moodOf(j.mood).i : ''}</span>
-          <span class="j-text">${esc(j.text || '')}</span>
+        ${recent.length ? recent.map(j => `<div class="j-row ${ui.jEdit === j.id ? 'sel' : ''}">
+          <span class="j-date" data-action="j-edit" data-id="${esc(j.id)}">${esc(parseISO(j.date).toLocaleDateString(LOCALE(), { day: 'numeric', month: 'short' }))}</span>
+          <span class="j-mood" data-action="j-edit" data-id="${esc(j.id)}">${moodOf(j.mood) ? moodOf(j.mood).i : ''}</span>
+          <span class="j-text" data-action="j-edit" data-id="${esc(j.id)}">${esc(j.text || '')}</span>
+          <button type="button" class="icon-btn" data-action="j-edit" data-id="${esc(j.id)}" aria-label="${esc(tr('Edit'))}">${IC('edit')}</button>
           <button type="button" class="icon-btn" data-action="j-del" data-id="${esc(j.id)}" aria-label="${esc(tr('Delete'))}">&times;</button>
         </div>`).join('') : `<p class="panel-note">${esc(tr('Nothing written yet.'))}</p>`}
         </div>
       </section>
-      ${habitReportHtml()}
     </div>`;
   }
 
@@ -2438,7 +2539,11 @@
       const text = String(f.text || '').trim().slice(0, 120);
       if (!mood && !text) { toast(tr('Pick a mood or write a line')); return; }
       if (text && looksSensitive(text)) { toast(tr('This looks like an ID or card number. Please remove it to continue')); return; }
-      const date = todayISO();
+      const date = jDateOf(f.date);
+      const editing = ui.jEdit ? db.journal.find(j => j.id === ui.jEdit) : null;
+      if (editing && editing.date !== date) { moveDiary(editing.id, date, mood, text); return; }
+      ui.jDate = date === todayISO() ? null : date;
+      ui.jEdit = null;
       if (commit(() => {
         const cur = db.journal.find(j => j.date === date);
         if (cur) { cur.mood = mood; cur.text = text; }
@@ -2489,22 +2594,38 @@
       <small>${esc(when)}</small></div>`;
   }
 
+  // Starter cards shown while there are only a few notes: tap one to open the editor with a ready-made layout.
+  const NOTE_STARTERS = [
+    { k: 'shop', ic: 'bag', title: 'Shopping list', body: () => '\u25a1 \n\u25a1 \n\u25a1 ' },
+    { k: 'idea', ic: 'flask', title: 'Ideas', body: () => '\u2022 ' },
+    { k: 'trip', ic: 'briefcase', title: 'Packing list', body: () => '\u25a1 \n\u25a1 \n\u25a1 ' },
+    { k: 'meet', ic: 'cal', title: 'Meeting notes', body: () => [tr('Date'), tr('Who'), tr('Key points')].map(x => x + ': ').join('\n') }
+  ];
+  function noteStartersHtml() {
+    const have = new Set(db.notes.map(n => (n.title || '').trim()));
+    const ghost = (k, ic, label) => `<button type="button" class="note-ghost" data-action="note-tpl" data-k="${k}"><span class="ng-ic">${IC(ic)}</span><b>${esc(label)}</b></button>`;
+    return `<h5 class="note-hint">${esc(tr('Start with a template'))}</h5>`
+      + ghost('', 'plus', tr('Blank note'))
+      + NOTE_STARTERS.filter(s => !have.has(tr(s.title))).map(s => ghost(s.k, s.ic, tr(s.title))).join('');
+  }
+
   function renderNoteList() {
     const el = $('#note-list');
     if (!el) return;
     const list = noteSorted();
-    if (list.length) { el.innerHTML = list.map(noteCardHtml).join(''); return; }
-    el.innerHTML = `<div class="empty rich note-empty">${window.SHI.art('doc')}<p>${esc(tr(db.notes.length ? 'No notes match your search.' : 'No notes yet. Tap New note to write your first one.'))}</p></div>`;
+    const starters = !noteQuery.trim() && db.notes.length < 6 ? noteStartersHtml() : '';
+    if (list.length) { el.innerHTML = list.map(noteCardHtml).join('') + starters; return; }
+    el.innerHTML = `<div class="empty rich note-empty">${window.SHI.art('doc')}<p>${esc(tr(db.notes.length ? 'No notes match your search.' : 'No notes yet. Tap New note to write your first one.'))}</p></div>` + starters;
   }
 
   function renderNotes() {
     const el = $('#notes');
     if (!el) return;
-    el.innerHTML = `<div class="note-bar">
+    el.innerHTML = `<section class="panel p-notes"><h3>${esc(tr('Notes'))}</h3><div class="note-bar">
         <input id="note-search" type="search" placeholder="${esc(tr('Search notes...'))}" value="${esc(noteQuery)}" aria-label="${esc(tr('Search notes...'))}">
         <button type="button" class="btn primary" data-action="note-new">+ ${esc(tr('New note'))}</button>
       </div>
-      <div id="note-list" class="note-grid"></div>`;
+      <div id="note-list" class="note-grid"></div></section>`;
     renderNoteList();
   }
 
@@ -2516,13 +2637,14 @@
   });
 
   // Editor: saves by itself while typing, so nothing is lost when the sheet is closed.
-  function openNote(id) {
+  function openNote(id, preset) {
     const ex = id ? db.notes.find(n => n.id === id) : null;
     if (id && !ex) return;
+    if (ex) preset = null;
     const st = { id: ex ? ex.id : uid(), color: ex ? ex.color || '' : '', pinned: ex ? !!ex.pinned : false };
     openModal(tr('Note'), `<form id="note-form" class="note-form" autocomplete="off">
-        <input name="title" class="note-title" type="text" maxlength="80" placeholder="${esc(tr('Title'))}" value="${esc(ex ? ex.title : '')}" aria-label="${esc(tr('Title'))}">
-        <textarea name="body" class="note-body" maxlength="20000" placeholder="${esc(tr('Write something...'))}" aria-label="${esc(tr('Note'))}">${esc(ex ? ex.body : '')}</textarea>
+        <input name="title" class="note-title" type="text" maxlength="80" placeholder="${esc(tr('Title'))}" value="${esc(ex ? ex.title : preset ? preset.title : '')}" aria-label="${esc(tr('Title'))}">
+        <textarea name="body" class="note-body" maxlength="20000" placeholder="${esc(tr('Write something...'))}" aria-label="${esc(tr('Note'))}">${esc(ex ? ex.body : preset ? preset.body : '')}</textarea>
         <div class="note-tools">
           <div class="note-colors" role="group" aria-label="${esc(tr('Color'))}">${NOTE_COLORS.map(c => `<button type="button" class="nc-dot nc-${c || 'n'} ${st.color === c ? 'on' : ''}" data-nc="${c}" aria-label="${esc(tr('Color'))}"></button>`).join('')}</div>
           <button type="button" class="btn small ghost" data-np="1">${esc(tr(st.pinned ? 'Pinned' : 'Pin'))}</button>
@@ -2539,6 +2661,7 @@
         clearTimeout(timer);
         const title = String(f.title.value).trim().slice(0, 80), body = String(f.body.value).slice(0, 20000);
         if (!title && !body.trim()) return true;
+        if (preset && !db.notes.some(n => n.id === st.id) && title === preset.title && body === preset.body) return true; // untouched template: don't save
         if (looksSensitive(title + ' ' + body)) { toast(tr('This looks like an ID or card number. Please remove it to continue')); return false; }
         const cur = db.notes.find(n => n.id === st.id);
         if (cur && cur.title === title && cur.body === body && !!cur.pinned === st.pinned && (cur.color || '') === st.color) return true;
@@ -2570,11 +2693,26 @@
       root.addEventListener('click', e => {
         if (e.target.closest('[data-action="close-modal"]') || e.target.matches('[data-action="backdrop"]')) { flush(); renderNotes(); }
       }, true);
-      if (!ex) focusIn('#note-form [name="title"]');
+      if (!ex) focusIn(preset ? '#note-form [name="body"]' : '#note-form [name="title"]');
     });
   }
 
+  // If the tab stayed open past midnight, move everything that follows "today" to the new day.
+  let lastRenderedDay = todayISO();
+  function checkNewDay() {
+    const t = todayISO();
+    if (t === lastRenderedDay) return false;
+    ui.calMonth = t.slice(0, 8) + '01';
+    ui.calSel = t;
+    ui.jDate = null;
+    ui.jEdit = null;
+    ui.expMonth = '';
+    renderAll();
+    return true;
+  }
+
   function renderAll() {
+    lastRenderedDay = todayISO();
     applyRecurring();
     renderHeader();
     renderHome();
@@ -2623,6 +2761,10 @@
     },
     'more-go': el => { closeModal(); switchTab(el.dataset.tab); },
     'note-new': () => openNote(),
+    'note-tpl': el => {
+      const s = NOTE_STARTERS.find(x => x.k === el.dataset.k);
+      openNote(null, s ? { title: tr(s.title), body: s.body() } : null);
+    },
     'note-open': el => openNote(el.dataset.id),
     'note-pin': el => {
       const n = db.notes.find(x => x.id === el.dataset.id);
@@ -2633,6 +2775,8 @@
       if (ui.tab === 'assets') openAssetForm();
       else openRenewForm();
     },
+
+    'qa-spend': () => openSpendQuick(),
 
     'home-add': el => {
       const k = el.dataset.kind;
@@ -2656,6 +2800,15 @@
       if (h && commit(() => { const set = new Set(h.dates || []); if (set.has(t)) set.delete(t); else set.add(t); h.dates = [...set].sort().slice(-800); })) { renderDaily(); renderHome(); }
     },
     'hb-del': el => { if (removeRecord('habits', el.dataset.id, 'Habit')) { renderDaily(); renderHome(); } },
+    // Tap a weekday on a habit to turn it on or off for that habit. All 7 on is stored as "every day".
+    'hb-day': el => {
+      const h = db.habits.find(x => x.id === el.dataset.id);
+      if (!h) return;
+      const d = Number(el.dataset.d), set = new Set(h.days && h.days.length ? h.days : [0, 1, 2, 3, 4, 5, 6]);
+      if (set.has(d)) set.delete(d); else set.add(d);
+      if (!set.size) { toast(tr('Keep at least one day')); return; }
+      if (commit(() => { h.days = set.size === 7 ? [] : [...set].sort(); })) { renderDaily(); renderHome(); }
+    },
     'hb-quick': el => {
       const name = tr(el.dataset.name);
       if (commit(() => { db.habits.push({ id: uid(), name, dates: [], createdAt: new Date().toISOString() }); })) { renderDaily(); renderHome(); }
@@ -2680,7 +2833,9 @@
       const mood = same ? 0 : v;
       const text = String(form.querySelector('[name="text"]').value || '').trim().slice(0, 120);
       if (text && looksSensitive(text)) { toast(tr('This looks like an ID or card number. Please remove it to continue')); return; }
-      const date = todayISO();
+      const editing = ui.jEdit ? db.journal.find(j => j.id === ui.jEdit) : null;
+      const date = editing ? editing.date : jDateOf((form.querySelector('[name="date"]') || {}).value);
+      ui.jDate = date === todayISO() ? null : date;
       if (commit(() => {
         const cur = db.journal.find(j => j.date === date);
         if (!mood && !text) { db.journal = db.journal.filter(j => j.date !== date); return; }
@@ -2688,7 +2843,16 @@
         else db.journal.push({ id: 'j' + date, date, mood, text, createdAt: new Date().toISOString() });
       })) { renderDaily(); renderHome(); }
     },
-    'j-del': el => { if (removeRecord('journal', el.dataset.id, 'Diary entry')) { renderDaily(); renderHome(); } },
+    'j-edit': el => {
+      const j = db.journal.find(x => x.id === el.dataset.id);
+      if (!j) return;
+      ui.jEdit = j.id;
+      ui.jDate = j.date === todayISO() ? null : j.date;
+      renderDaily();
+      focusIn('#journal-form [name="text"]');
+    },
+    'j-today': () => { ui.jDate = null; ui.jEdit = null; renderDaily(); },
+    'j-del': el => { if (ui.jEdit === el.dataset.id) ui.jEdit = null; if (removeRecord('journal', el.dataset.id, 'Diary entry')) { renderDaily(); renderHome(); } },
     'budget-set': el => openBudgetForm(el.dataset.caps === '1'),
     'budget-suggest': () => {
       const total = Math.round(Number(db.budget.amount) || 0);
@@ -2716,6 +2880,7 @@
         if ($('#exp-modal')) renderExpModal();
       }
     },
+    'cal-today': () => { ui.calMonth = todayISO().slice(0, 8) + '01'; ui.calSel = todayISO(); renderHome(); },
     'cal-nav': el => { ui.calMonth = addMonths(ui.calMonth, Number(el.dataset.d)); ui.calSel = null; renderHome(); },
     'cal-goto': el => {
       ui.calMonth = el.dataset.month;
@@ -2767,12 +2932,12 @@
       const h = r.history || [];
       const sum = list => list.reduce((s, x) => s + (Number(x.amount) || 0), 0);
       const yr = String(new Date().getFullYear());
-      openModal(`History - ${r.title}`, `
+      openModal(`${tr('History')} - ${r.title}`, `
         <div class="stats">
-          <div class="stat"><div class="l">Paid in total</div><div class="v">${esc(money(sum(h)))}</div></div>
-          <div class="stat"><div class="l">This year</div><div class="v">${esc(money(sum(h.filter(x => x.date.startsWith(yr)))))}</div></div>
+          <div class="stat"><div class="l">${esc(tr('Paid in total'))}</div><div class="v">${esc(money(sum(h)))}</div></div>
+          <div class="stat"><div class="l">${esc(tr('This year'))}</div><div class="v">${esc(money(sum(h.filter(x => x.date.startsWith(yr)))))}</div></div>
         </div>
-        ${h.map(x => `<div class="ev-row"><span class="nm">${esc(fmtDate(x.date))} <small class="muted">for ${esc(fmtDate(x.due))}</small></span><b>${x.amount ? esc(money(x.amount)) : '-'}</b></div>`).join('')}`);
+        ${h.map(x => `<div class="ev-row"><span class="nm">${esc(fmtDate(x.date))} <small class="muted">${esc(tr('for {d}', { d: fmtDate(x.due) }))}</small></span><b>${x.amount ? esc(money(x.amount)) : '-'}</b></div>`).join('')}`);
     },
     'edit-renew': el => openRenewForm(el.dataset.id),
     // Renewed / archived are reversible, so there is no confirm popup, only an Undo toast.
@@ -3079,7 +3244,7 @@
       setTimeout(() => root.remove(), 300);
       if (!manual) {
         // Point at the + button so a first-time user knows where to start.
-        const fab = ui.tab === 'home' ? $('.home-add') : $('#fab');
+        const fab = ui.tab === 'home' ? (matchMedia('(min-width: 900px)').matches ? $('.home-quick') : $('.home-add')) : $('#fab');
         if (fab) {
           fab.classList.add('pulse');
           setTimeout(() => fab.classList.remove('pulse'), 4200);
@@ -3121,7 +3286,7 @@
   // Light vibration on touch for buttons and tappable cards (Android; ignored on iPhone).
   document.addEventListener('pointerdown', e => {
     if (e.pointerType !== 'touch') return;
-    const hit = e.target.closest('.btn, .tile, .nav-btn, .chip-btn, .fab, .subtab, .card-row.tap, .add-tile, .mood-btn, .sch-check, .icon-btn, .help-btn, .side-acct, .cat-chip, .wk-pick label, .rep-chk, .link-btn, .toast-btn');
+    const hit = e.target.closest('.btn, .tile, .nav-btn, .chip-btn, .fab, .subtab, .card-row.tap, .add-tile, .qk-tile, .mood-btn, .sch-check, .icon-btn, .help-btn, .side-acct, .cat-chip, .wk-pick label, .rep-chk, .link-btn, .toast-btn');
     if (hit) buzz(hit.matches('.mood-btn, .cat-chip, .subtab, .chip-btn, .wk-pick label') ? 'select' : 'tap');
   }, { passive: true });
 
@@ -3147,7 +3312,7 @@
   function applyTheme(dark) {
     document.documentElement.dataset.theme = dark ? 'dark' : 'light';
     const b = $('[data-action="toggle-theme"]');
-    if (b) { b.innerHTML = IC(dark ? 'sun' : 'moon'); b.title = dark ? 'Light mode' : 'Dark mode'; }
+    if (b) { b.innerHTML = IC(dark ? 'sun' : 'moon'); b.title = tr(dark ? 'Light mode' : 'Dark mode'); }
     const m = $('meta[name="theme-color"]');
     if (m) m.content = dark ? '#0b3f3b' : '#115e59';
   }
@@ -3216,7 +3381,7 @@
     const b = $('[data-action="account"]');
     if (b) {
       b.classList.toggle('on', !!Cloud.user);
-      b.title = Cloud.user ? `Signed in: ${Cloud.user.email}` : 'Account and cloud sync';
+      b.title = Cloud.user ? tr('Signed in: {email}', { email: Cloud.user.email }) : tr('Account and cloud sync');
     }
     // Sidebar account card (bottom-left on wide screens)
     const nm = $('#sa-name');
@@ -3237,14 +3402,14 @@
       <form id="np-form">
         ${fInput('New password (6 or more characters)', 'password', 'password', '', 'autocomplete="new-password" minlength="6" required')}
         <p id="np-msg" class="card-sub"></p>
-        <button type="submit" class="btn primary block">Save password</button>
+        <button type="submit" class="btn primary block">${esc(tr('Save password'))}</button>
       </form>`, root => {
       $('#np-form', root).addEventListener('submit', async e => {
         e.preventDefault();
         const pw = new FormData(e.target).get('password') || '';
-        if (pw.length < 6) { $('#np-msg', root).textContent = 'Use 6 or more characters.'; return; }
+        if (pw.length < 6) { $('#np-msg', root).textContent = tr('Use 6 or more characters.'); return; }
         const { error } = await Cloud.client.auth.updateUser({ password: pw });
-        if (error) { $('#np-msg', root).textContent = error.message; return; }
+        if (error) { $('#np-msg', root).textContent = tr(error.message); return; }
         closeModal();
         toast('Password updated');
       });
@@ -3264,16 +3429,16 @@
 
   function openAccount() {
     if (!Cloud.enabled()) {
-      openAccModal('Account', `<p class="card-sub">Cloud sync is not set up yet. Your data is saved on this device only. Add SUPABASE_URL and SUPABASE_ANON_KEY at the top of app.js to turn it on.</p>${backupSection()}`, wireBackup);
+      openAccModal('Account', `<p class="card-sub">${esc(tr('Cloud sync is not set up yet. Your data is saved on this device only. Add SUPABASE_URL and SUPABASE_ANON_KEY at the top of app.js to turn it on.'))}</p>${backupSection()}`, wireBackup);
       return;
     }
     if (Cloud.user) {
       openAccModal('Account', `
-        <p class="card-sub">Signed in as <b>${esc(Cloud.user.email)}</b></p>
-        <p class="card-sub">${esc(SYNC_TEXT[Cloud.state] || '')}${Cloud.msg ? ': ' + esc(Cloud.msg) : ''}</p>
+        <p class="card-sub">${esc(tr('Signed in as'))} <b>${esc(Cloud.user.email)}</b></p>
+        <p class="card-sub">${esc(tr(SYNC_TEXT[Cloud.state] || ''))}${Cloud.msg ? ': ' + esc(tr(Cloud.msg)) : ''}</p>
         <div class="card-actions" style="padding:0">
-          <button type="button" class="btn small" data-acc="sync">Sync now</button>
-          <button type="button" class="btn small ghost" data-acc="out">Sign out</button>
+          <button type="button" class="btn small" data-acc="sync">${esc(tr('Sync now'))}</button>
+          <button type="button" class="btn small ghost" data-acc="out">${esc(tr('Sign out'))}</button>
         </div>${backupSection()}`, root => {
         wireBackup(root);
         // Listen on the sheet body (rebuilt on every open) so handlers never pile up.
@@ -3291,13 +3456,13 @@
         ${fInput('Email', 'email', 'email', '', 'autocomplete="email" required')}
         ${fInput('Password (6 or more characters)', 'password', 'password', '', 'autocomplete="current-password" minlength="6" required')}
         <p id="acc-msg" class="card-sub"></p>
-        <button type="submit" class="btn primary block" data-acc="in">Sign in</button>
-        <button type="button" class="btn ghost block" data-acc="up">Create account</button>
-        <button type="button" class="link-btn" data-acc="forgot">Forgot password?</button>
+        <button type="submit" class="btn primary block" data-acc="in">${esc(tr('Sign in'))}</button>
+        <button type="button" class="btn ghost block" data-acc="up">${esc(tr('Create account'))}</button>
+        <button type="button" class="link-btn" data-acc="forgot">${esc(tr('Forgot password?'))}</button>
       </form>${backupSection()}`, root => {
       wireBackup(root);
       const form = $('#acc-form', root);
-      const msg = t => { $('#acc-msg', root).textContent = t; };
+      const msg = t => { $('#acc-msg', root).textContent = tr(t); };
       // After sign-up: a clear "go and confirm your email" screen that replaces the form.
       const showSent = (email, again) => {
         const gmail = /@(gmail|googlemail)\.com$/i.test(email);
@@ -3387,7 +3552,11 @@
   window.L.onChange(() => { const y = window.scrollY; renderAll(); switchTab(ui.tab); window.scrollTo({ top: y }); updateAccountBtn(); });
   Cloud.init();
   // Pick up changes made on another device whenever this tab comes back into view.
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && Cloud.user && Cloud.state !== 'sync') Cloud.pull(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    checkNewDay();
+    if (Cloud.user && Cloud.state !== 'sync') Cloud.pull();
+  });
   updateAccountBtn();
   // Splash first, then the guide on the very first visit.
   runSplash(() => { if (!introSeen()) openIntro(false); });

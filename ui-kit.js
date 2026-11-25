@@ -116,8 +116,8 @@
       pts.push([x, y]); d += (d && vals[i - 1] != null ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1);
     });
     if (!pts.length) return '';
-    return '<svg class="spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" aria-hidden="true"><path d="' + d + '" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>'
-      + pts.map(function (p) { return '<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="2.4" fill="var(--primary)"/>'; }).join('') + '</svg>';
+    return '<svg class="spark" viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" aria-hidden="true"><path d="' + d + '" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>'
+      + pts.map(function (p) { return '<path d="M' + p[0].toFixed(1) + ' ' + p[1].toFixed(1) + 'h0" stroke="var(--primary)" stroke-width="6" stroke-linecap="round" vector-effect="non-scaling-stroke"/>'; }).join('') + '</svg>';
   }
 
   // Budget plan pie. rows = [{v: limit, sp: spent, k: palette index | color}].
@@ -144,4 +144,48 @@
 
   window.SHI = { planPie: planPie, ic: ic, face: face, art: art, ring: ring, donut: donut, pie: pie, heat: heat, spark: spark, pal: PAL };
   document.querySelectorAll('[data-ic]').forEach(function (el) { el.innerHTML = ic(el.getAttribute('data-ic')); });
+})();
+
+/* Bee mouse pointer: desktop only. A small bee follows the mouse, flaps its wings, leans as it moves and flaps faster over things you can click. */
+(function () {
+  'use strict';
+  if (!window.matchMedia || !matchMedia('(hover: hover) and (pointer: fine)').matches) return;
+  var SVG = '<svg viewBox="-13 -13 26 26" aria-hidden="true"><g class="bee-b" stroke="#134e4a" stroke-linejoin="round" stroke-linecap="round">'
+    + '<ellipse class="bee-w l" cx="-5" cy="-7" rx="6" ry="4" fill="#fff" stroke-width="1.4" opacity=".92"/>'
+    + '<ellipse class="bee-w r" cx="5" cy="-7" rx="6" ry="4" fill="#fff" stroke-width="1.4" opacity=".92"/>'
+    + '<ellipse cx="0" cy="0" rx="8" ry="6" fill="#f5b83d" stroke-width="1.4"/>'
+    + '<path d="M-2 -5v10M3 -5v10" stroke-width="2" fill="none"/></g></svg>';
+  var HOT = 'a,button,label,summary,select,[data-action],[role="button"],[role="checkbox"],input[type="checkbox"],input[type="radio"],input[type="range"],input[type="date"],input[type="time"],input[type="submit"]';
+  var TXT = 'input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="date"]):not([type="time"]):not([type="submit"]):not([type="button"]),textarea,[contenteditable="true"]';
+  var root = document.documentElement, el = document.createElement('div');
+  el.id = 'bee-cursor'; el.setAttribute('aria-hidden', 'true'); el.innerHTML = SVG;
+  document.body.appendChild(el);
+  var x = 0, y = 0, px = 0, lean = 0, raf = 0, shown = false;
+  function frame() {
+    raf = 0;
+    var target = Math.max(-22, Math.min(22, (x - px) * 1.2));
+    lean += (target - lean) * 0.25; px = x;
+    el.style.transform = 'translate3d(' + x + 'px,' + y + 'px,0) rotate(' + (12 + lean).toFixed(1) + 'deg)';
+    if (Math.abs(target) > 0.1 || Math.abs(lean) > 0.2) raf = requestAnimationFrame(frame);
+  }
+  function go() { if (!raf) raf = requestAnimationFrame(frame); }
+  document.addEventListener('pointermove', function (e) {
+    if (e.pointerType && e.pointerType !== 'mouse') return;
+    x = e.clientX; y = e.clientY;
+    if (!shown) { shown = true; px = x; root.classList.add('bee-on'); el.classList.add('show'); }
+    go();
+  }, { passive: true });
+  document.addEventListener('pointerdown', function (e) {
+    if (e.pointerType && e.pointerType !== 'mouse') { shown = false; root.classList.remove('bee-on'); el.classList.remove('show'); return; }
+    el.classList.add('down');
+  }, true);
+  document.addEventListener('pointerup', function () { el.classList.remove('down'); }, true);
+  document.addEventListener('mouseover', function (e) {
+    var t = e.target;
+    if (!t || !t.closest) return;
+    el.classList.toggle('hot', !!t.closest(HOT));
+    el.classList.toggle('text', !!t.closest(TXT));
+  }, true);
+  root.addEventListener('mouseleave', function () { el.classList.remove('show'); });
+  root.addEventListener('mouseenter', function () { if (shown) el.classList.add('show'); });
 })();
