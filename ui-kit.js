@@ -240,11 +240,42 @@
     fr.readAsDataURL(f);
   }
 
+  var BEE = '<svg viewBox="-13 -13 26 26" aria-hidden="true"><g stroke="#134e4a" stroke-linejoin="round" stroke-linecap="round">'
+    + '<ellipse class="bee-w l" cx="-5" cy="-7" rx="6" ry="4" fill="#fff" stroke-width="1.4" opacity=".92"/>'
+    + '<ellipse class="bee-w r" cx="5" cy="-7" rx="6" ry="4" fill="#fff" stroke-width="1.4" opacity=".92"/>'
+    + '<ellipse cx="0" cy="0" rx="8" ry="6" fill="#f5b83d" stroke-width="1.4"/>'
+    + '<path class="bee-sting" d="M-7.5 2.5L-13.5 5.5" stroke-width="1.8" fill="none"/>'
+    + '<path d="M-2 -5v10M3 -5v10" stroke-width="2" fill="none"/></g></svg>';
+  var FLY = 520; // ms the bee needs to reach the photo on touch screens
+  // Touch screens have no mouse bee: a bee flies in from the side, stings, and leaves
+  function fly(px, py) {
+    var f = document.createElement('div'); f.className = 'rage-fly'; f.innerHTML = BEE; document.body.appendChild(f);
+    var side = Math.random() < 0.5 ? -1 : 1, sx = px + side * (130 + Math.random() * 60), sy = py - 150 - Math.random() * 60;
+    var T = function (x, y, r, s) { return 'translate(' + x + 'px,' + y + 'px) rotate(' + r + 'deg) scale(' + s + ')'; };
+    var an = f.animate([
+      { transform: T(sx, sy, 20, 1), opacity: 0, offset: 0 },
+      { transform: T(sx + (px - sx) * 0.3, sy + (py - sy) * 0.3 - 20, 5, 1), opacity: 1, offset: 0.15 },
+      { transform: T(px, py, 12, 1.3), opacity: 1, offset: 0.58 },
+      { transform: T(px, py, -12, 1.5), opacity: 1, offset: 0.66 },
+      { transform: T(px + side * 10, py, 12, 1.25), opacity: 1, offset: 0.8 },
+      { transform: T(px - side * 20, py - 140, 20, 1), opacity: 0, offset: 1 }
+    ], { duration: 950, easing: 'ease-in-out' });
+    an.onfinish = function () { if (f.parentNode) f.parentNode.removeChild(f); };
+  }
+  var mouse = window.matchMedia && matchMedia('(hover: hover) and (pointer: fine)');
+
   function sting(e) {
     if (!st.img) { file.click(); return; }
-    var r = pic.getBoundingClientRect(), br = box.getBoundingClientRect(), x, y;
+    var r = pic.getBoundingClientRect(), x, y;
     if (e && e.detail > 0) { x = e.clientX - r.left; y = e.clientY - r.top; }
     else { x = r.width * (0.3 + Math.random() * 0.4); y = r.height * (0.3 + Math.random() * 0.4); } // keyboard press
+    var vx = r.left + x, vy = r.top + y;
+    if (mouse && mouse.matches) impact(x, y);
+    else { fly(vx, vy); setTimeout(function () { impact(x, y); }, FLY); }
+  }
+
+  function impact(x, y) {
+    var r = pic.getBoundingClientRect(), br = box.getBoundingClientRect();
     restart(pic, 'shake', 340);
     var b = bee(); if (b) restart(b, 'jab', 280);
     // red bump where the stinger landed (keep at most 8 on screen)
@@ -277,6 +308,14 @@
   // The bee shows its stinger while it hovers the photo
   pic.addEventListener('pointerenter', function (e) { var b = bee(); if (b && st.img && (!e.pointerType || e.pointerType === 'mouse')) b.classList.add('sting'); });
   pic.addEventListener('pointerleave', function () { var b = bee(); if (b) b.classList.remove('sting'); });
+
+  var wide = window.matchMedia('(min-width: 900px)'), nav = document.querySelector('.bottom-nav'), home = document.getElementById('view-home');
+  function place() {
+    if (wide.matches) { if (nav && box.parentNode !== nav) nav.insertBefore(box, nav.querySelector('.side-acct')); }
+    else if (home && box.parentNode !== home) home.insertBefore(box, home.firstChild);
+  }
+  place();
+  if (wide.addEventListener) wide.addEventListener('change', place); else if (wide.addListener) wide.addListener(place);
 
   if (window.L && window.L.onChange) window.L.onChange(paint);
   paint();

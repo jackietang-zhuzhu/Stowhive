@@ -550,8 +550,8 @@ label.btn { display: inline-block; }
 .rep-pick { display: flex; flex-wrap: wrap; gap: 6px; }
 
 .wk-pick { grid-column: 1 / -1; display: flex; gap: 5px; flex-wrap: wrap; }
-.wk-pick label { cursor: pointer; }
-.wk-pick input { position: absolute; opacity: 0; pointer-events: none; }
+.wk-pick label { cursor: pointer; position: relative; }
+.wk-pick input { position: absolute; left: 0; top: 0; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
 .wk-pick span { display: inline-flex; width: 30px; height: 30px; align-items: center; justify-content: center; border-radius: 50%; border: 1px solid var(--line); font-size: 12px; color: var(--muted); transition: transform .12s cubic-bezier(.3, 1.4, .5, 1), background-color .15s; }
 .wk-pick label:active span { transform: scale(.88); }
 .wk-pick input:checked + span { background: var(--primary); border-color: var(--primary); color: #fff; }
@@ -1400,18 +1400,23 @@ html.bee-on :is(input:not([type="checkbox"]):not([type="radio"]):not([type="rang
    Vent corner: a pinned sidebar card. Hover the photo with the bee and click to sting.
    Desktop sidebar only; hidden on phones and on very short windows.
    ========================================================================== */
-.rage { display: none; }
+.rage {
+  position: relative; display: flex; align-items: center; gap: 16px;
+  margin: 0 0 14px; padding: 14px 16px; border-radius: 16px; background: var(--card); box-shadow: var(--shadow);
+}
 @media (min-width: 900px) and (min-height: 680px) {
   .rage {
     display: flex; flex-direction: column; align-items: stretch; gap: 6px;
-    position: absolute; left: 12px; right: 12px; bottom: 86px;
+    position: absolute; left: 12px; right: 12px; bottom: 86px; margin: 0; box-shadow: none;
     padding: 10px 12px; border-radius: 16px; background: var(--bg);
     border: 1px solid transparent; transition: border-color .2s;
   }
   .rage:hover { border-color: var(--red-bg); }
 }
-.rage-pic-wrap { flex: none; align-self: center; order: 0; width: 88px; height: 102px; }
-@media (min-height: 800px) { .rage-pic-wrap { width: 124px; height: 143px; } }
+.rage-pic-wrap { flex: none; align-self: center; order: 0; width: 96px; height: 111px; }
+@media (min-width: 900px) { .rage-pic-wrap { width: 88px; height: 102px; } }
+@media (min-width: 900px) and (max-height: 679px) { .rage { display: none; } }
+@media (min-width: 900px) and (min-height: 800px) { .rage-pic-wrap { width: 124px; height: 143px; } }
 .rage-pic {
   position: relative; display: block; width: 100%; height: 100%; padding: 0; border: 0; cursor: pointer;
   background: var(--primary-mid); transition: background .2s, transform .15s;
@@ -1440,7 +1445,8 @@ html.bee-on :is(input:not([type="checkbox"]):not([type="radio"]):not([type="rang
   position: absolute; z-index: 5; pointer-events: none; font-weight: 800; font-size: 15px; color: var(--red);
   text-shadow: 0 1px 0 var(--card); white-space: nowrap; animation: ragePop .9s ease-out forwards;
 }
-.rage-body { display: contents; }
+.rage-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+@media (min-width: 900px) { .rage-body { display: contents; } }
 .rage-head { order: -1; display: flex; align-items: center; justify-content: space-between; gap: 4px; font-size: 14px; color: var(--red); }
 .rage-btn {
   flex: none; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%;
@@ -1475,3 +1481,11 @@ html.bee-on :is(input:not([type="checkbox"]):not([type="radio"]):not([type="rang
 html.theme-fade, html.theme-fade *, html.theme-fade *::before, html.theme-fade *::after {
   transition: background-color .5s ease, color .5s ease, border-color .5s ease, fill .5s ease, stroke .5s ease, box-shadow .5s ease, opacity .5s ease !important;
 }
+
+/* A bee that flies in to sting on touch screens (no mouse bee there) */
+.rage-fly { position: fixed; left: 0; top: 0; width: 36px; height: 36px; margin: -18px 0 0 -18px; pointer-events: none; z-index: 2147483000; will-change: transform, opacity; }
+.rage-fly svg { display: block; width: 100%; height: 100%; overflow: visible; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .25)); }
+.rage-fly .bee-sting { opacity: 1; }
+.rage-fly .bee-w { transform-box: fill-box; transform-origin: 50% 100%; }
+.rage-fly .bee-w.l { animation: beeFlapL .06s ease-in-out infinite alternate; }
+.rage-fly .bee-w.r { animation: beeFlapR .06s ease-in-out infinite alternate; }
