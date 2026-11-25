@@ -62,7 +62,8 @@
         todos: Array.isArray(d.todos) ? d.todos : [],
         journal: Array.isArray(d.journal) ? d.journal : [],
         notes: Array.isArray(d.notes) ? d.notes : [],
-        budget: (() => { const b = (d.budget && typeof d.budget === 'object') ? d.budget : {}; const caps = {}; Object.entries(b.caps || {}).forEach(([k, v]) => { if (Number(v) > 0) caps[k] = Number(v); }); return { amount: Math.max(0, Number(b.amount) || 0), updatedAt: b.updatedAt || '', caps, recurring: (Array.isArray(b.recurring) ? b.recurring : []).filter(r => r && r.id && Number(r.amount) > 0) }; })(),
+        work: Array.isArray(d.work) ? d.work : [],
+        budget: (() => { const b = (d.budget && typeof d.budget === 'object') ? d.budget : {}; const caps = {}; Object.entries(b.caps || {}).forEach(([k, v]) => { if (Number(v) > 0) caps[k] = Number(v); }); return { amount: Math.max(0, Number(b.amount) || 0), updatedAt: b.updatedAt || '', caps, customCats: (Array.isArray(b.customCats) ? b.customCats : []).filter(c => c && /^c_[a-z0-9]+$/.test(c.k) && typeof c.name === 'string' && c.name.trim()).slice(0, 12).map(c => ({ k: c.k, name: c.name.trim().slice(0, 14), ic: typeof c.ic === 'string' ? c.ic.slice(0, 16) : 'tag', ci: Number.isInteger(c.ci) ? c.ci : 7 })), hiddenCats: (Array.isArray(b.hiddenCats) ? b.hiddenCats : []).filter(k => typeof k === 'string' && k !== 'other').slice(0, 20), recurring: (Array.isArray(b.recurring) ? b.recurring : []).filter(r => r && r.id && Number(r.amount) > 0) }; })(),
         custom: {
           assetCats: (d.custom && d.custom.assetCats) || [],
           hiddenCats: (d.custom && d.custom.hiddenCats) || []
@@ -175,7 +176,7 @@
     }
     el.classList.add('show');
     const bad = ['Enter an amount above 0', 'This looks like an ID or card number. Please remove it to continue', 'Pick a mood or write a line', 'Pick a due date first', 'Storage is full. Delete some records and try again.'];
-    buzz(bad.some(k => msg === tr(k)) ? 'error' : o.actionLabel ? 'warn' : 'success');
+    buzz(bad.some(k => msg === k || msg === tr(k)) ? 'error' : o.actionLabel ? 'warn' : 'success');
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => el.classList.remove('show'), o.ms || 2600);
   }
@@ -256,7 +257,7 @@
   function stampChanges(prev) {
     const now = new Date().toISOString();
     db.deleted = db.deleted || {};
-    ['assets', 'renewals', 'expenses', 'schedule', 'habits', 'todos', 'journal', 'notes'].forEach(k => {
+    ['assets', 'renewals', 'expenses', 'schedule', 'habits', 'todos', 'journal', 'notes', 'work'].forEach(k => {
       const old = new Map((prev[k] || []).map(r => [r.id, r]));
       const strip = r => JSON.stringify({ ...r, updatedAt: undefined });
       db[k].forEach(r => {
@@ -273,7 +274,7 @@
     const out = Store.normalize({});
     const del = { ...(b.deleted || {}) };
     Object.entries(a.deleted || {}).forEach(([id, t]) => { if (!(del[id] > t)) del[id] = t; });
-    ['assets', 'renewals', 'expenses', 'schedule', 'habits', 'todos', 'journal', 'notes'].forEach(k => {
+    ['assets', 'renewals', 'expenses', 'schedule', 'habits', 'todos', 'journal', 'notes', 'work'].forEach(k => {
       const map = new Map();
       const take = r => { const c = map.get(r.id); if (!c || (r.updatedAt || '') > (c.updatedAt || '')) map.set(r.id, r); };
       (a[k] || []).forEach(take);
@@ -866,29 +867,38 @@
   /* ------------------------------------------------------------------ */
   /* Daily spending and monthly budget                                   */
   /* ------------------------------------------------------------------ */
-  const EXP_CATS = [
-    { k: 'food', i: IC('food'), en: 'Food' },
-    { k: 'transport', i: IC('car'), en: 'Transport' },
-    { k: 'shopping', i: IC('bag'), en: 'Shopping' },
-    { k: 'home', i: IC('home'), en: 'Household' },
-    { k: 'fun', i: IC('fun'), en: 'Fun' },
-    { k: 'health', i: IC('pill'), en: 'Health' },
-    { k: 'other', i: IC('other'), en: 'Other' }
+  const BASE_CATS = [
+    { k: 'food', i: IC('food'), en: 'Food', ci: 0 },
+    { k: 'transport', i: IC('car'), en: 'Transport', ci: 1 },
+    { k: 'shopping', i: IC('bag'), en: 'Shopping', ci: 2 },
+    { k: 'home', i: IC('home'), en: 'Household', ci: 3 },
+    { k: 'fun', i: IC('fun'), en: 'Fun', ci: 4 },
+    { k: 'health', i: IC('pill'), en: 'Health', ci: 5 },
+    { k: 'other', i: IC('other'), en: 'Other', ci: 6 }
   ];
-  const catOf = x => EXP_CATS.find(c => c.k === (x && x.cat)) || EXP_CATS[EXP_CATS.length - 1];
+  const CAT_ICONS = ['food', 'car', 'bag', 'home', 'fun', 'pill', 'gift', 'pin', 'flame', 'phone', 'music', 'film', 'star', 'tag', 'wrench', 'plug'];
+  const customCatsOf = () => ((db.budget && db.budget.customCats) || []).map(c => ({ k: c.k, i: IC(c.ic), en: c.name, ci: c.ci, custom: true }));
+  // allCats: every category ever known (used to show old records). expCats: the ones the user currently uses.
+  const allCats = () => [...BASE_CATS, ...customCatsOf()];
+  const expCats = () => {
+    const hid = (db.budget && db.budget.hiddenCats) || [];
+    return [...BASE_CATS.filter(c => c.k !== 'other' && !hid.includes(c.k)), ...customCatsOf(), BASE_CATS[BASE_CATS.length - 1]];
+  };
+  const selCat = () => { const l = expCats(); return l.some(c => c.k === ui.lastCat) ? ui.lastCat : l[0].k; };
+  const catOf = x => allCats().find(c => c.k === (x && x.cat)) || BASE_CATS[BASE_CATS.length - 1];
   const expCatTotals = list => {
     const m = new Map();
     list.forEach(x => { const c = catOf(x); m.set(c.k, (m.get(c.k) || 0) + (Number(x.amount) || 0)); });
-    return [...m.entries()].map(([k, total]) => ({ c: EXP_CATS.find(c => c.k === k), total: r2c(total) }))
+    return [...m.entries()].map(([k, total]) => ({ c: allCats().find(c => c.k === k), total: r2c(total) }))
       .sort((a, b) => b.total - a.total);
   };
   function catBreakdownHtml(list, title) {
     const tot = sumAmt(list);
     if (!tot) return '';
     const rows = expCatTotals(list), caps = (db.budget && db.budget.caps) || {}, pal = window.SHI.pal;
-    return `<div class="cat-bd"><h4>${esc(title)}</h4><div class="cat-wrap">${rows.length > 1 ? window.SHI.donut(rows.map(r => ({ v: r.total, k: EXP_CATS.indexOf(r.c) }))) : ''}<div class="cat-rows">${rows.map(r => {
+    return `<div class="cat-bd"><h4>${esc(title)}</h4><div class="cat-wrap">${rows.length > 1 ? window.SHI.donut(rows.map(r => ({ v: r.total, k: r.c.ci }))) : ''}<div class="cat-rows">${rows.map(r => {
       const pct = Math.round(r.total / tot * 100), cap = caps[r.c.k], over = cap && r.total > cap;
-      return `<div class="cat-row"><span class="cat-n"><i class="sw" style="background:${pal[EXP_CATS.indexOf(r.c)]}"></i>${r.c.i} ${esc(tr(r.c.en))}</span>
+      return `<div class="cat-row"><span class="cat-n"><i class="sw" style="background:${pal[r.c.ci]}"></i>${r.c.i} ${esc(tr(r.c.en))}</span>
         <span class="cat-bar ${over ? 'over' : ''}"><i style="width:${cap ? Math.min(100, Math.round(r.total / cap * 100)) : Math.max(pct, 3)}%"></i></span>
         <span class="cat-v ${over ? 'neg' : ''}">${esc(money(r.total))} <small>${cap ? '/ ' + esc(money(cap)) : pct + '%'}</small></span></div>`;
     }).join('')}</div></div></div>`;
@@ -945,7 +955,7 @@
   // Pie of how the monthly budget is planned across categories, with what is already spent in each.
   function budgetPlanHtml(s) {
     const caps = (db.budget && db.budget.caps) || {};
-    const capRows = EXP_CATS.filter(c => caps[c.k] > 0).map(c => ({ c, v: caps[c.k] }));
+    const capRows = expCats().filter(c => caps[c.k] > 0).map(c => ({ c, v: caps[c.k] }));
     if (!s.budget && !capRows.length) return '';
     const title = tr('Budget plan this month');
     if (!capRows.length) {
@@ -962,13 +972,13 @@
     const spentBy = new Map(expCatTotals(db.expenses.filter(e => monthOf(e.date) === s.ym)).map(r => [r.c.k, r.total]));
     const pal = window.SHI.pal;
     const mny = n => (Number.isInteger(n) ? `${CURRENCY} ${n.toLocaleString('en-US')}` : money(n));
-    const slices = capRows.map(r => ({ v: r.v, sp: spentBy.get(r.c.k) || 0, k: EXP_CATS.indexOf(r.c) }));
+    const slices = capRows.map(r => ({ v: r.v, sp: spentBy.get(r.c.k) || 0, k: r.c.ci }));
     if (free > 0) slices.push({ v: free, sp: 0, plain: true, color: 'var(--track)' });
     const pct = v => Math.round(v / total * 100);
     return `<div class="plan"><h4>${esc(title)}</h4>
       <div class="plan-wrap">${window.SHI.planPie(slices)}<div class="plan-rows">
-        ${capRows.map(r => { const sp = spentBy.get(r.c.k) || 0; return `<div class="plan-row"><span class="cat-n"><i class="sw" style="background:${pal[EXP_CATS.indexOf(r.c) % pal.length]}"></i>${r.c.i} ${esc(tr(r.c.en))}</span>
-          <span class="plan-v"><b>${esc(mny(r.v))}</b> <small>${pct(r.v)}%</small><em class="${sp > r.v ? 'neg' : ''}">${esc(tr('Spent {amount}', { amount: money(sp) }))}</em></span><span class="pbar ${sp > r.v ? 'over' : sp >= r.v * 0.8 ? 'warn' : ''}"><i style="width:${sp > 0 ? Math.max(2, Math.min(100, Math.round(sp / r.v * 100))) : 0}%;min-width:${sp > 0 ? 6 : 0}px;background:${pal[EXP_CATS.indexOf(r.c) % pal.length]}"></i></span></div>`; }).join('')}
+        ${capRows.map(r => { const sp = spentBy.get(r.c.k) || 0; return `<div class="plan-row"><span class="cat-n"><i class="sw" style="background:${pal[r.c.ci % pal.length]}"></i>${r.c.i} ${esc(tr(r.c.en))}</span>
+          <span class="plan-v"><b>${esc(mny(r.v))}</b> <small>${pct(r.v)}%</small><em class="${sp > r.v ? 'neg' : ''}">${esc(tr('Spent {amount}', { amount: money(sp) }))}</em></span><span class="pbar ${sp > r.v ? 'over' : sp >= r.v * 0.8 ? 'warn' : ''}"><i style="width:${sp > 0 ? Math.max(2, Math.min(100, Math.round(sp / r.v * 100))) : 0}%;min-width:${sp > 0 ? 6 : 0}px;background:${pal[r.c.ci % pal.length]}"></i></span></div>`; }).join('')}
         ${free > 0 ? `<div class="plan-row"><span class="cat-n"><i class="sw" style="background:var(--track);border:1px solid var(--line)"></i>${esc(tr('Not planned'))}</span><span class="plan-v"><b>${esc(mny(free))}</b> <small>${pct(free)}%</small></span></div>` : ''}
       </div></div>
       ${s.budget > 0 && capsTotal > s.budget ? `<p class="panel-note warn">${esc(tr('Limits add up to {amount}, more than your budget.', { amount: money(capsTotal) }))}</p>` : ''}
@@ -978,8 +988,8 @@
   // Expense entry form. id is 'exp-form' on the Budget page and 'qa-exp' inside the Quick Add dialog.
   const expFormHtml = (id, today) => `
       <form id="${id}" class="exp-form" autocomplete="off">
-        <div class="cat-pick" role="radiogroup" aria-label="${esc(tr('Category'))}">${EXP_CATS.map(c =>
-          `<label class="cat-chip"><input type="radio" name="cat" value="${c.k}" ${c.k === (ui.lastCat || 'food') ? 'checked' : ''}><span>${c.i} ${esc(tr(c.en))}</span></label>`).join('')}</div>
+        <div class="cat-pick" role="radiogroup" aria-label="${esc(tr('Category'))}">${expCats().map(c =>
+          `<label class="cat-chip"><input type="radio" name="cat" value="${c.k}" ${c.k === selCat() ? 'checked' : ''}><span>${c.i} ${esc(tr(c.en))}</span></label>`).join('')}</div>
         <input name="amount" type="number" inputmode="decimal" step="0.01" min="0.01" max="99999999" placeholder="${esc(tr('Amount'))} (${CURRENCY})" aria-label="${esc(tr('Amount'))}" required>
         <input name="note" type="text" maxlength="60" placeholder="${esc(tr('Spent on what? (optional)'))}" aria-label="${esc(tr('Spent on what? (optional)'))}">
         <input name="date" type="date" value="${today}" aria-label="${esc(tr('Date'))}" required>
@@ -1021,14 +1031,38 @@
       </div></div>`;
   }
 
+  // Category rows inside the budget form: limit boxes, remove buttons, add-category box.
+  function capsInnerHtml(vals) {
+    vals = vals || {};
+    const caps = db.budget.caps || {};
+    const rows = expCats().map(c => {
+      const v = vals['cap_' + c.k] != null ? vals['cap_' + c.k] : (caps[c.k] || '');
+      return `<div class="cap-row"><span class="cap-n">${c.i} ${esc(tr(c.en))}</span><div class="cap-r"><div class="stepper small"><button type="button" class="step-btn" data-step="-1" data-for="cap_${c.k}" aria-label="${esc(tr('Subtract'))}">&minus;</button><input name="cap_${c.k}" type="number" inputmode="decimal" min="0" step="0.01" value="${esc(String(v))}" placeholder="-"><button type="button" class="step-btn" data-step="1" data-for="cap_${c.k}" aria-label="${esc(tr('Add'))}">+</button></div>${c.k !== 'other' ? `<button type="button" class="icon-btn cap-x" data-cat-del="${c.k}" aria-label="${esc(tr('Remove category'))}">&times;</button>` : '<span class="cap-x-ph"></span>'}</div></div>`;
+    }).join('');
+    const hid = ((db.budget && db.budget.hiddenCats) || []).map(k => BASE_CATS.find(c => c.k === k)).filter(Boolean);
+    return `${rows}
+      <div class="cat-add"><h4 class="rec-h">${esc(tr('Add category'))}</h4>
+        <div class="cat-pick">${CAT_ICONS.map((n, i) => `<label class="cat-chip"><input type="radio" name="newic" value="${n}" ${i === 0 ? 'checked' : ''}><span>${IC(n)}</span></label>`).join('')}</div>
+        <div class="cat-add-row"><input id="cat-new" type="text" maxlength="14" placeholder="${esc(tr('New category name'))}" aria-label="${esc(tr('New category name'))}" autocomplete="off"><button type="button" class="btn small" data-cat-add="1">${esc(tr('Add'))}</button></div>
+        ${hid.length ? `<h4 class="rec-h">${esc(tr('Removed categories (tap to bring back)'))}</h4><div class="cat-pick">${hid.map(c => `<button type="button" class="chip-btn" data-cat-restore="${c.k}">+ ${c.i} ${esc(tr(c.en))}</button>`).join('')}</div>` : ''}
+      </div>`;
+  }
+
   function openBudgetForm(openCaps) {
     const cur = Number(db.budget.amount) || 0;
     const dim = daysInMonth(monthOf(todayISO()));
     openModal(tr('Monthly budget'), `
       <form id="bd-form">
-        ${fInput(`${esc(tr('Budget for each month'))} (${CURRENCY})`, 'amount', 'number', cur || '', 'inputmode="decimal" min="0" max="99999999" step="0.01" placeholder="1500" required')}
+        <div class="field step-bar"><span>${esc(tr('Amount to add or subtract each tap'))} (${CURRENCY})</span>
+          <input id="bd-step" type="number" inputmode="decimal" min="0.01" step="any" value="100" aria-label="${esc(tr('Amount to add or subtract each tap'))}"></div>
+        <div class="field"><span>${esc(tr('Budget for each month'))} (${CURRENCY})</span>
+          <div class="stepper">
+            <button type="button" class="step-btn" data-step="-1" data-for="amount" aria-label="${esc(tr('Subtract'))}">&minus;</button>
+            <input name="amount" type="number" value="${val(cur || '')}" inputmode="decimal" min="0" max="99999999" step="0.01" placeholder="1500" required>
+            <button type="button" class="step-btn" data-step="1" data-for="amount" aria-label="${esc(tr('Add'))}">+</button>
+          </div></div>
         <p class="card-sub" id="bd-hint"></p>
-        <details class="caps" ${Object.keys(db.budget.caps || {}).length || openCaps ? 'open' : ''}><summary>${esc(tr('Limit per category (optional)'))}</summary>${EXP_CATS.map(c => `<label class="cap-row"><span>${c.i} ${esc(tr(c.en))}</span><input name="cap_${c.k}" type="number" inputmode="decimal" min="0" step="0.01" value="${(db.budget.caps || {})[c.k] || ''}" placeholder="-"></label>`).join('')}</details>
+        <details class="caps" ${Object.keys(db.budget.caps || {}).length || openCaps ? 'open' : ''}><summary>${esc(tr('Limit per category (optional)'))}</summary><div id="caps-inner">${capsInnerHtml()}</div><p class="card-sub" id="bd-alloc"></p></details>
         ${(db.budget.recurring || []).length ? `<h4 class="rec-h">${esc(tr('Repeats every month'))}</h4>${db.budget.recurring.map(r => `<div class="rec-row"><span>${catOf(r).i} ${esc(r.note || tr(catOf(r).en))} &middot; ${esc(tr('Day {n}', { n: r.day }))}</span><b>${esc(money(r.amount))}</b><button type="button" class="icon-btn" data-rec-del="${esc(r.id)}" aria-label="${esc(tr('Delete'))}">&times;</button></div>`).join('')}` : ''}
         <button type="submit" class="btn primary block">${esc(tr('Save'))}</button>
         ${cur ? `<button type="button" class="btn ghost block" data-bd="clear" style="margin-top:8px">${esc(tr('Remove budget'))}</button>` : ''}
@@ -1037,13 +1071,65 @@
       root.querySelectorAll('[data-rec-del]').forEach(b => b.addEventListener('click', () => {
         if (commit(() => { db.budget = { ...db.budget, recurring: db.budget.recurring.filter(x => x.id !== b.dataset.recDel), updatedAt: new Date().toISOString() }; })) b.closest('.rec-row').remove();
       }));
-      const readCaps = () => { const c = {}; EXP_CATS.forEach(x => { const v = Math.round(Number(form.elements['cap_' + x.k].value) * 100) / 100; if (v > 0) c[x.k] = v; }); return c; };
+      const readCaps = () => { const c = {}; expCats().forEach(x => { const el = form.elements['cap_' + x.k]; const v = el ? Math.round(Number(el.value) * 100) / 100 : 0; if (v > 0) c[x.k] = v; }); return c; };
+      const capVals = () => { const o = {}; form.querySelectorAll('input[name^="cap_"]').forEach(el => { o[el.name] = el.value; }); return o; };
+      const renderCaps = vals => { $('#caps-inner', root).innerHTML = capsInnerHtml(vals); alloc(); };
+      const stamp = () => new Date().toISOString();
+      const addCat = () => {
+        const inp = $('#cat-new', root);
+        const name = inp.value.trim().slice(0, 14);
+        if (!name) { toast(tr('Enter a category name')); return; }
+        if (expCats().some(c => tr(c.en).toLowerCase() === name.toLowerCase())) { toast(tr('That category already exists')); return; }
+        const mine = db.budget.customCats || [];
+        if (mine.length >= 12) { toast(tr('Up to 12 of your own categories')); return; }
+        const icEl = form.elements.newic;
+        const ic = CAT_ICONS.includes(icEl && icEl.value) ? icEl.value : 'tag';
+        const use = {}; mine.forEach(c => { use[c.ci] = (use[c.ci] || 0) + 1; });
+        const ci = [7, 8, 9, 10, 11].sort((x, y) => (use[x] || 0) - (use[y] || 0))[0];
+        const k = 'c_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+        const vals = capVals();
+        if (commit(() => { db.budget = { ...db.budget, customCats: [...mine, { k, name, ic, ci }], updatedAt: stamp() }; })) { renderCaps(vals); refreshSpending(); const n = $('#cat-new', root); if (n) n.focus(); }
+      };
+      form.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.id === 'cat-new') { e.preventDefault(); addCat(); } });
+      form.addEventListener('click', e => {
+        const del = e.target.closest('[data-cat-del]'), res = e.target.closest('[data-cat-restore]');
+        if (e.target.closest('[data-cat-add]')) { addCat(); return; }
+        if (res) {
+          const vals = capVals();
+          if (commit(() => { db.budget = { ...db.budget, hiddenCats: (db.budget.hiddenCats || []).filter(x => x !== res.dataset.catRestore), updatedAt: stamp() }; })) { renderCaps(vals); refreshSpending(); }
+          return;
+        }
+        if (del) {
+          const k = del.dataset.catDel, mine = db.budget.customCats || [], isCustom = mine.some(c => c.k === k);
+          if (isCustom && !window.confirm(tr('Delete this category? Past spending in it will show as Other.'))) return;
+          const vals = capVals(); delete vals['cap_' + k];
+          const caps = { ...(db.budget.caps || {}) }; delete caps[k];
+          if (commit(() => { db.budget = { ...db.budget, caps, customCats: mine.filter(c => c.k !== k), hiddenCats: isCustom ? (db.budget.hiddenCats || []) : [...new Set([...(db.budget.hiddenCats || []), k])], updatedAt: stamp() }; })) { renderCaps(vals); refreshSpending(); }
+        }
+      });
       const hint = () => {
         const v = Number(form.elements.amount.value);
         $('#bd-hint', root).textContent = v > 0 ? tr('About {amount} per day ({n} days this month)', { amount: money(v / dim), n: dim }) : '';
       };
-      form.elements.amount.addEventListener('input', hint);
-      hint();
+      const alloc = () => {
+        const total = Number(form.elements.amount.value) || 0;
+        const planned = Math.round(Object.values(readCaps()).reduce((t, x) => t + x, 0) * 100) / 100;
+        $('#bd-alloc', root).textContent = !planned ? '' : (total > 0 && planned > total)
+          ? tr('Limits add up to {amount}, more than your budget.', { amount: money(planned) })
+          : tr('Planned {a}, not planned {b}', { a: money(planned), b: money(Math.max(0, total - planned)) });
+      };
+      form.addEventListener('input', () => { hint(); alloc(); });
+      // + and - buttons: add or subtract the amount in the step box
+      form.addEventListener('click', e => {
+        const b = e.target.closest('[data-step]');
+        if (!b) return;
+        const inp = form.elements[b.dataset.for];
+        const step = Math.abs(Number($('#bd-step', root).value)) || 100;
+        const next = Math.min(99999999, Math.max(0, Math.round(((Number(inp.value) || 0) + Number(b.dataset.step) * step) * 100) / 100));
+        inp.value = next > 0 || inp.name === 'amount' ? next : '';
+        hint(); alloc();
+      });
+      hint(); alloc();
       const save = (amount, caps) => {
         if (commit(() => { db.budget = { ...db.budget, amount, caps, updatedAt: new Date().toISOString() }; })) {
           closeModal();
@@ -1243,7 +1329,7 @@
     const note = String(f.note || '').trim().slice(0, 60);
     if (looksSensitive(note)) { toast(tr('This looks like an ID or card number. Please remove it to continue')); return; }
     const date = /^\d{4}-\d{2}-\d{2}$/.test(f.date || '') ? f.date : todayISO();
-    const cat = EXP_CATS.some(c => c.k === f.cat) ? f.cat : 'other';
+    const cat = expCats().some(c => c.k === f.cat) ? f.cat : 'other';
     ui.lastCat = cat;
     const rid = f.rep ? uid() : '';
     if (commit(() => {
@@ -1306,6 +1392,8 @@
       ${tile('tab', 'data-tab="daily"', 'check', tr('Routine'),
         esc(hs.length ? tr('{a}/{b} habits', { a: n, b: hs.length }) : tr('Habits, to-do, mood')),
         hs.length ? `<span class="qk-ring">${window.SHI.ring(hp, '', n + '/' + hs.length, 42)}</span>` : '')}
+      ${tile('tab', 'data-tab="work"', 'briefcase', tr('Daily Work'),
+        esc(db.work.length ? tr('{a}/{b} checked today', { a: db.work.filter(checkedToday).length, b: db.work.length }) : tr('Daily checks, links, logins')))}
     </div>`;
   }
 
@@ -1321,6 +1409,7 @@
       ${quickBarHtml()}
       <div class="home-add">
           ${dailyTileHtml()}
+          ${workTileHtml()}
           ${notesTileHtml()}
           ${budgetTileHtml()}
           <button type="button" class="add-tile" data-action="home-add" data-kind="asset"><span class="ti">${IC('box')}</span><b>${esc(tr('Item'))}</b><small>${esc(tr('Where it is, warranty'))}</small></button>
@@ -2165,12 +2254,32 @@
     });
   }
 
+  // Keeps the original day of month: a bill due on the 31st goes Jan 31, Feb 28, Mar 31 (not Mar 28).
+  function addMonthsKeepDay(iso, n, day) {
+    const d = parseISO(iso);
+    const r = new Date(d.getFullYear(), d.getMonth() + n, 1);
+    const last = new Date(r.getFullYear(), r.getMonth() + 1, 0).getDate();
+    r.setDate(Math.min(day, last));
+    return toISO(r);
+  }
+  // The day of month this bill really falls on. The saved anchorDay is used only while the date still matches it
+  // (the user may have edited the date since).
+  function renewDay(r) {
+    const cur = parseISO(r.nextDueDate);
+    const a = Number(r.anchorDay) || 0;
+    const clamp = a > 0 ? Math.min(a, new Date(cur.getFullYear(), cur.getMonth() + 1, 0).getDate()) : 0;
+    const day = clamp && cur.getDate() === clamp ? a : cur.getDate();
+    r.anchorDay = day;
+    return day;
+  }
   function advanceRenewal(r) {
     const step = r.cycle === 'yearly' ? 12 : 1;
-    let next = addMonths(r.nextDueDate, step);
+    const day = renewDay(r);
+    let i = 1;
+    let next = addMonthsKeepDay(r.nextDueDate, step, day);
     let guard = 0;
     // If the item was paid very late, keep stepping until the date is today or later.
-    while (daysUntil(next) < 0 && guard++ < 600) next = addMonths(next, step);
+    while (daysUntil(next) < 0 && guard++ < 600) { i++; next = addMonthsKeepDay(r.nextDueDate, step * i, day); }
     r.nextDueDate = next;
     r.isTrial = false;
   }
@@ -2264,6 +2373,7 @@
       todos: clean(p.todos).filter(x => typeof x.title === 'string' && x.title),
       journal: clean(p.journal).filter(x => /^\d{4}-\d{2}-\d{2}$/.test(x.date || '')),
       notes: clean(p.notes).filter(x => typeof x.title === 'string' || typeof x.body === 'string'),
+      work: clean(p.work).filter(x => typeof x.title === 'string' && x.title),
       budget: p.budget,
       custom: { assetCats: strs(p.custom && p.custom.assetCats), hiddenCats: strs(p.custom && p.custom.hiddenCats) }
     });
@@ -2697,6 +2807,180 @@
     });
   }
 
+
+  /* ------------------------------------------------------------------ */
+  /* Daily Work: things to check often. "Check now" logs the time.       */
+  /* ------------------------------------------------------------------ */
+  // Passwords are kept in their own key on this device only. They are never part of db,
+  // so they are not synced to the cloud and not included in backups or exports.
+  const WPW_KEY = 'stowhive.work.pw';
+  const pwAll = () => { try { return JSON.parse(localStorage.getItem(WPW_KEY) || '{}') || {}; } catch (e) { return {}; } };
+  const pwGet = id => String(pwAll()[id] || '');
+  const pwSet = (id, v) => {
+    const m = pwAll();
+    if (v) m[id] = v; else delete m[id];
+    try { localStorage.setItem(WPW_KEY, JSON.stringify(m)); return true; } catch (e) { return false; }
+  };
+  const MASK = '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022';
+
+  // w.checks is a list of ISO timestamps, oldest first: one entry per press of "Check now".
+  const dayOf = ts => toISO(new Date(ts));
+  const checksOn = (w, iso) => (w.checks || []).filter(t => dayOf(t) === iso);
+  const checkedToday = w => checksOn(w, todayISO()).length > 0;
+  const hhmm = ts => new Date(ts).toLocaleTimeString(LOCALE(), { hour: '2-digit', minute: '2-digit', hour12: false });
+  function workStreak(w) {
+    const days = new Set((w.checks || []).map(dayOf));
+    let d = todayISO(), n = 0;
+    if (!days.has(d)) d = toISO(new Date(parseISO(d).getTime() - DAY_MS));
+    while (days.has(d)) { n++; d = toISO(new Date(parseISO(d).getTime() - DAY_MS)); }
+    return n;
+  }
+  function lastCheckedText(w) {
+    const c = w.checks || [];
+    if (!c.length) return tr('Not checked yet');
+    const last = c[c.length - 1];
+    const day = dayOf(last) === todayISO() ? tr('Today') : new Date(last).toLocaleDateString(LOCALE(), { day: 'numeric', month: 'short' });
+    return tr('Last checked {t}', { t: day + ' ' + hhmm(last) });
+  }
+
+  // One link per box: "Dashboard https://x.com" or just "x.com/path". Only http(s) is accepted.
+  function parseLinks(text) {
+    const out = [];
+    const trim = x => x.replace(/^[\s:|\u2013\u2014-]+|[\s:|\u2013\u2014-]+$/g, '').trim();
+    String(text || '').split('\n').forEach(raw => {
+      const line = raw.trim();
+      if (!line) return;
+      let url = '', label = '';
+      const m = line.match(/https?:\/\/\S+/i);
+      const lf = line.match(/^(?:(.*?)\s+)?(file:\/\/\/.+|[A-Za-z]:[\\\/].*)$/i); // local file or folder on this computer
+      if (lf && !m) {
+        let p = lf[2].trim().replace(/\\/g, '/');
+        url = /^file:/i.test(p) ? p : 'file:///' + p;
+        label = trim(lf[1] || '');
+      }
+      else if (m) { url = m[0]; label = trim(line.replace(m[0], '')); }
+      else {
+        const tok = line.split(/\s+/).pop();
+        if (!/^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(tok)) return;
+        url = 'https://' + tok; label = trim(line.slice(0, line.length - tok.length));
+      }
+      try {
+        const u = new URL(url);
+        if (u.protocol === 'http:' || u.protocol === 'https:' || u.protocol === 'file:') out.push({ label: label.slice(0, 40), url: u.href });
+      } catch (e) { /* skip bad link */ }
+    });
+    return out.slice(0, 2);
+  }
+  const linkText = l => (l ? (l.label ? l.label + ' ' : '') + l.url : '');
+  const hostOf = u => { try { const x = new URL(u); if (x.protocol === 'file:') return decodeURIComponent(x.pathname.split('/').filter(Boolean).pop() || 'file'); return x.hostname.replace(/^www\./, ''); } catch (e) { return u; } };
+
+  function workCardHtml(w) {
+    const today = checksOn(w, todayISO()), n = today.length, st = workStreak(w);
+    const links = (w.links || []).filter(l => l && /^(https?|file):\/\//i.test(l.url)).slice(0, 2);
+    const hasPw = !!pwGet(w.id);
+    const ib = (act, ico, tip, on) => `<button type="button" class="dw-ib ${on ? 'on' : ''}" data-action="${act}" data-id="${esc(w.id)}" title="${esc(tr(tip))}" aria-label="${esc(tr(tip))}">${IC(ico)}</button>`;
+    const row = (ico, label, valHtml, btns) => `<div class="dw-row"><span class="dw-k">${IC(ico)}<em>${esc(tr(label))}</em></span>${valHtml}${btns}</div>`;
+    const mini = (act, what, ico, tip) => `<button type="button" class="dw-mini" data-action="${act}" data-id="${esc(w.id)}" data-what="${what}" title="${esc(tr(tip))}" aria-label="${esc(tr(tip))}">${IC(ico)}</button>`;
+    return `<div class="dw-card ${n ? 'done' : ''} ${w.star ? 'star' : ''}" data-id="${esc(w.id)}">
+      <div class="dw-top">
+        <span class="dw-av" aria-hidden="true">${esc((w.title || '?').trim().charAt(0).toUpperCase())}</span>
+        <div class="dw-main"><h4>${esc(w.title)}</h4>${w.note ? `<p>${esc(w.note)}</p>` : ''}</div>
+        <div class="dw-ibs">${ib('work-star', 'star', w.star ? 'Unstar' : 'Star', w.star)}${ib('work-edit', 'edit', 'Edit')}${ib('work-del', 'trash', 'Delete')}</div>
+      </div>
+      <div class="dw-links">${links.map(l => `<a class="dw-link" data-wid="${esc(w.id)}" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer" title="${esc(l.url)}">${esc(l.label || hostOf(l.url))} &#8599;</a>`).join('')}</div>
+      <div class="dw-bot">
+      <div class="dw-count">
+        <div class="dw-n"><b>${esc(tr('\u00d7{n} today', { n }))}</b>${st >= 2 ? `<span class="dw-streak" title="${esc(tr('{n} day streak', { n: st }))}">${IC('flame')}${st}</span>` : ''}</div>
+        <span class="dw-last">${esc(lastCheckedText(w))}</span>
+      </div>
+      ${w.account || hasPw ? `<div class="dw-cred">
+        ${w.account ? row('user', 'Account', `<span class="dw-v">${esc(w.account)}</span>`, mini('work-copy', 'acct', 'copy', 'Copy')) : ''}
+        ${hasPw ? row('lock', 'Password', `<span class="dw-v dw-pw" data-pw="${esc(w.id)}">${MASK}</span>`, mini('work-pw', 'pw', 'eye', 'Show') + mini('work-copy', 'pw', 'copy', 'Copy')) : ''}
+      </div>` : ''}
+      </div>
+    </div>`;
+  }
+
+  function renderWork() {
+    const el = $('#work');
+    if (!el) return;
+    const list = db.work.slice().sort((a, b) => (b.star ? 1 : 0) - (a.star ? 1 : 0) || (a.createdAt || '').localeCompare(b.createdAt || ''));
+    const n = list.filter(checkedToday).length;
+    el.innerHTML = `<section class="panel p-work">
+      <div class="dw-head"><h3>${esc(tr('Daily Work'))}</h3>${list.length ? `<span class="dw-prog">${esc(tr('{a}/{b} checked today', { a: n, b: list.length }))}</span>` : ''}</div>
+      <p class="panel-note">${esc(tr('Things to check often. Press Check now each time; it keeps the count and the time.'))}</p>
+      <div class="dw-bar"><button type="button" class="btn primary" data-action="work-new">+ ${esc(tr('New task'))}</button></div>
+      ${list.length ? `<div class="dw-list">${list.map(workCardHtml).join('')}</div>`
+        : `<div class="empty rich">${window.SHI.art('briefcase')}<p>${esc(tr('No daily work yet. Add what you check every day, with its links and login.'))}</p></div>`}
+    </section>`;
+  }
+
+  function workTileHtml() {
+    const n = db.work.length, d = db.work.filter(checkedToday).length;
+    return `<button type="button" class="add-tile" data-action="tab" data-tab="work"><span class="ti">${IC('briefcase')}</span><b>${esc(tr('Daily Work'))}</b>
+      <small>${esc(n ? tr('{a}/{b} checked today', { a: d, b: n }) : tr('Daily checks, links, logins'))}</small></button>`;
+  }
+
+  function copyText(text) {
+    const ok = () => toast(tr('Copied'));
+    if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).then(ok, () => toast(tr('Copy failed'))); return; }
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.cssText = 'position:fixed;opacity:0'; document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); ok(); } catch (e) { toast(tr('Copy failed')); }
+    ta.remove();
+  }
+
+  // Delete a task (with Undo). Keep its password for the Undo window, then forget it if the task is really gone.
+  function deleteWork(id) {
+    if (!removeRecord('work', id, 'Task')) return;
+    setTimeout(() => { if (!db.work.some(w => w.id === id)) pwSet(id, ''); }, 6500);
+    renderWork(); renderHome();
+  }
+
+  function openWork(id) {
+    const ex = id ? db.work.find(w => w.id === id) : null;
+    if (id && !ex) return;
+    const wid = ex ? ex.id : uid();
+    const ph = 'placeholder="Dashboard https://example.com" maxlength="3000" spellcheck="false"';
+    openModal(ex ? 'Edit task' : 'New task', `<form id="work-form" class="note-form" autocomplete="off" novalidate>
+        ${fInput('Title', 'title', 'text', ex ? ex.title : '', 'maxlength="60" required')}
+        ${fText('What to check', 'note', ex ? ex.note : '', 2, 'maxlength="300"')}
+        ${fInput('Link 1', 'l1', 'text', ex ? linkText((ex.links || [])[0]) : '', ph)}
+        ${fInput('Link 2', 'l2', 'text', ex ? linkText((ex.links || [])[1]) : '', ph)}
+        ${fInput('Account', 'account', 'text', ex ? ex.account : '', 'maxlength="80" autocomplete="off" spellcheck="false"')}
+        ${fInput('Password', 'pw', 'password', ex ? pwGet(wid) : '', 'maxlength="120" autocomplete="new-password"')}
+        ${safeNote('Passwords stay on this device only. They are not synced to the cloud or saved in backups.')}
+        <div class="note-actions">
+          ${ex ? `<button type="button" class="btn ghost" data-wd="1">${esc(tr('Delete'))}</button>` : ''}
+          <button type="submit" class="btn primary">${esc(tr('Save'))}</button>
+        </div>
+      </form>`, root => {
+      const form = $('#work-form', root), f = form.elements;
+      form.addEventListener('submit', e => {
+        e.preventDefault();
+        const title = String(f.title.value).trim().slice(0, 60), note = String(f.note.value).trim().slice(0, 300);
+        if (!title) { toast(tr('Please enter a title.')); return; }
+        if (looksSensitive(title + ' ' + note)) { toast(tr('This looks like an ID or card number. Please remove it to continue')); return; }
+        const p1 = parseLinks(f.l1.value).slice(0, 1), p2 = parseLinks(f.l2.value).slice(0, 1);
+        if ((f.l1.value.trim() && !p1.length) || (f.l2.value.trim() && !p2.length)) { toast(tr('That link does not look right. Use a full address starting with https:// or a file path like C:/folder/file.html')); return; }
+        const links = [...p1, ...p2];
+        const account = String(f.account.value).trim().slice(0, 80);
+        const ok = commit(() => {
+          if (ex) { ex.title = title; ex.note = note; ex.links = links; ex.account = account; }
+          else db.work.push({ id: wid, title, note, links, account, star: false, checks: [], createdAt: new Date().toISOString() });
+        });
+        if (!ok) return;
+        if (!pwSet(wid, String(f.pw.value))) toast(tr('Could not save the password on this device.'));
+        closeModal(); renderWork(); renderHome();
+      });
+      form.addEventListener('click', e => {
+        if (!e.target.closest('[data-wd]')) return;
+        closeModal(); deleteWork(wid);
+      });
+      if (!ex) focusIn('#work-form [name="title"]');
+    });
+  }
+
   // If the tab stayed open past midnight, move everything that follows "today" to the new day.
   let lastRenderedDay = todayISO();
   function checkNewDay() {
@@ -2718,6 +3002,7 @@
     renderHome();
     renderDaily();
     renderNotes();
+    renderWork();
     renderBudget();
     renderHelp();
     renderAssets();
@@ -2725,7 +3010,7 @@
     if ($('#exp-modal')) renderExpModal();
   }
 
-  const TAB_ORDER = ['home', 'daily', 'notes', 'budget', 'assets', 'renewals'];
+  const TAB_ORDER = ['home', 'daily', 'work', 'notes', 'budget', 'assets', 'renewals'];
   function switchTab(tab) {
     if (tab !== ui.tab) {
       document.body.dataset.dir = TAB_ORDER.indexOf(tab) < TAB_ORDER.indexOf(ui.tab) ? 'back' : 'fwd';
@@ -2738,11 +3023,11 @@
     $$('.view').forEach(v => v.classList.toggle('active', v.id === `view-${tab}`));
     $$('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     const moreBtn = $('.nav-more');
-    if (moreBtn) moreBtn.classList.toggle('active', ['daily', 'notes', 'budget'].includes(tab));
-    const fabLabel = { home: 'Add', budget: 'Add', assets: 'Add Item', renewals: 'Add Renewal', daily: 'Add', notes: 'Add' };
+    if (moreBtn) moreBtn.classList.toggle('active', ['daily', 'work', 'notes', 'budget'].includes(tab));
+    const fabLabel = { home: 'Add', budget: 'Add', assets: 'Add Item', renewals: 'Add Renewal', daily: 'Add', work: 'Add', notes: 'Add' };
     $('#fab .fab-text').textContent = tr(fabLabel[tab]);
     // Home and Daily Budget already have their own add buttons on the page.
-    $('.fab-wrap').style.display = (tab === 'home' || tab === 'budget' || tab === 'daily' || tab === 'notes') ? 'none' : '';
+    $('.fab-wrap').style.display = (tab === 'home' || tab === 'budget' || tab === 'daily' || tab === 'work' || tab === 'notes') ? 'none' : '';
     window.scrollTo({ top: 0 });
   }
 
@@ -2754,12 +3039,45 @@
     more: () => {
       const items = [
         ['daily', 'check', 'Routine', 'Habits, to-do, mood'],
+        ['work', 'briefcase', 'Daily Work', 'Daily checks, links, logins'],
         ['notes', 'doc', 'Notes', 'Memos, lists, ideas'],
         ['budget', 'wallet', 'Daily Budget', 'Set a monthly budget']
       ];
       openModal('More', `<div class="tiles">${items.map(x => `<button type="button" class="tile ${ui.tab === x[0] ? 'sel' : ''}" data-action="more-go" data-tab="${x[0]}"><span class="ti">${IC(x[1])}</span><span class="tl">${esc(tr(x[2]))}</span><small>${esc(tr(x[3]))}</small></button>`).join('')}</div>`);
     },
     'more-go': el => { closeModal(); switchTab(el.dataset.tab); },
+    'work-new': () => openWork(),
+    'work-edit': el => openWork(el.dataset.id),
+    'work-check': el => {
+      const w = db.work.find(x => x.id === el.dataset.id);
+      if (!w) return;
+      buzz('success');
+      if (commit(() => { w.checks = [...(w.checks || []), new Date().toISOString()].slice(-500); })) { renderWork(); renderHome(); }
+    },
+    'work-undo': el => {
+      const w = db.work.find(x => x.id === el.dataset.id);
+      if (!w || !checksOn(w, todayISO()).length) return;
+      if (commit(() => { w.checks = (w.checks || []).slice(0, -1); })) { renderWork(); renderHome(); }
+    },
+    'work-star': el => {
+      const w = db.work.find(x => x.id === el.dataset.id);
+      if (w && commit(() => { w.star = !w.star; })) renderWork();
+    },
+    'work-del': el => deleteWork(el.dataset.id),
+    'work-copy': el => {
+      const w = db.work.find(x => x.id === el.dataset.id);
+      if (!w) return;
+      const v = el.dataset.what === 'pw' ? pwGet(w.id) : (w.account || '');
+      if (v) copyText(v);
+    },
+    'work-pw': el => {
+      const span = el.closest('.dw-card') && el.closest('.dw-card').querySelector('.dw-pw');
+      if (!span) return;
+      const mask = () => { span.textContent = MASK; span.dataset.on = ''; el.title = tr('Show'); clearTimeout(span._t); };
+      if (span.dataset.on) { mask(); return; }
+      span.textContent = pwGet(span.dataset.pw) || MASK; span.dataset.on = '1'; el.title = tr('Hide');
+      clearTimeout(span._t); span._t = setTimeout(mask, 10000); // hides itself again after 10 seconds
+    },
     'note-new': () => openNote(),
     'note-tpl': el => {
       const s = NOTE_STARTERS.find(x => x.k === el.dataset.k);
@@ -2859,8 +3177,9 @@
       if (!(total > 0)) return;
       const caps = {};
       let used = 0;
-      EXP_CATS.slice(0, -1).forEach(c => { const v = Math.round(total * SPLIT[c.k] / 100); caps[c.k] = v; used += v; });
-      caps[EXP_CATS[EXP_CATS.length - 1].k] = Math.max(0, total - used);
+      const list = expCats(), w = c => (SPLIT[c.k] != null ? SPLIT[c.k] : 8), wt = list.reduce((t, c) => t + w(c), 0);
+      list.slice(0, -1).forEach(c => { const v = Math.round(total * w(c) / wt); caps[c.k] = v; used += v; });
+      caps[list[list.length - 1].k] = Math.max(0, total - used);
       Object.keys(caps).forEach(k => { if (!(caps[k] > 0)) delete caps[k]; });
       if (commit(() => { db.budget = { ...db.budget, caps, updatedAt: new Date().toISOString() }; })) {
         refreshSpending();
@@ -2952,7 +3271,7 @@
         // A trial ending is not a payment, so it is not written to the history.
         if (!r.isTrial) r.history = [{ date: todayISO(), due: r.nextDueDate, amount: Number(r.amount) || 0 }, ...(r.history || [])];
         if (onetime) { r.status = 'archived'; if (pl) r.left = 0; }
-        else if (pl) { r.nextDueDate = addMonths(r.nextDueDate, 1); r.left = (Number(r.left) || 1) - 1; }
+        else if (pl) { r.nextDueDate = addMonthsKeepDay(r.nextDueDate, 1, renewDay(r)); r.left = (Number(r.left) || 1) - 1; }
         else advanceRenewal(r);
       });
       if (!ok) return;
@@ -3045,6 +3364,24 @@
     backdrop: (el, e) => { if (e.target === el && !el.dataset.lock) closeModal(); }
   };
 
+  // Opening a link on a Daily Work card counts as one check (no need to press "Check now").
+  const countLinkOpen = e => {
+    if (e.type === 'auxclick' && e.button !== 1) return;
+    const a = e.target.closest && e.target.closest('a.dw-link[data-wid]');
+    if (!a) return;
+    const w = db.work.find(x => x.id === a.dataset.wid);
+    if (!w) return;
+    const last = (w.checks || []).slice(-1)[0];
+    if (last && Date.now() - new Date(last).getTime() < 3000) return; // ignore double clicks
+    if (commit(() => { w.checks = [...(w.checks || []), new Date().toISOString()].slice(-500); })) {
+      buzz('success');
+      // Re-draw after the browser has opened the link, so the click is not interrupted.
+      setTimeout(() => { renderWork(); renderHome(); }, 0);
+    }
+  };
+  document.addEventListener('click', countLinkOpen);
+  document.addEventListener('auxclick', countLinkOpen);
+
   document.addEventListener('click', e => {
     const el = e.target.closest('[data-action]');
     if (!el) return;
@@ -3078,12 +3415,12 @@
       text: 'Six jobs, six pages. Pick the one that matches what you want to do.',
       art: hiveSvg('ihex') + `
         <div class="pill-row" style="--i:1">
-          <span class="pill">${IC('home')} ${esc(tr('Home'))}</span>
           <span class="pill">${IC('check')} ${esc(tr('Routine'))}</span>
+          <span class="pill">${IC('briefcase')} ${esc(tr('Daily Work'))}</span>
           <span class="pill">${IC('doc')} ${esc(tr('Notes'))}</span>
+          <span class="pill">${IC('wallet')} ${esc(tr('Daily Budget'))}</span>
           <span class="pill">${IC('box')} ${esc(tr('My Items'))}</span>
           <span class="pill">${IC('bell')} ${esc(tr('Bills & Dates'))}</span>
-          <span class="pill">${IC('wallet')} ${esc(tr('Daily Budget'))}</span>
         </div>`
     },
     {
@@ -3099,6 +3436,18 @@
         <div class="pill-row" style="--i:2"><span class="pill">${esc(tr('Mood & diary'))}</span></div>`
     },
     {
+      title: 'Check it every day',
+      text: 'Use Daily Work for things you check often, like a dashboard or an inbox. Press Check now to log the count and time, and keep the link and login with it.',
+      art: `
+        <div class="mock-card" style="--i:0">
+          <div class="mc-row"><div><b>${esc(tr('Order dashboard'))}</b><div class="mc-sub">${esc(tr('Last checked {t}', { t: '09:30' }))}</div></div><span class="badge green">${esc(tr('\u00d7{n} today', { n: 3 }))}</span></div>
+        </div>
+        <div class="mock-card" style="--i:1">
+          <div class="mc-row"><div><b>${esc(tr('Customer inbox'))}</b><div class="mc-sub">${esc(tr('Not checked yet'))}</div></div><span class="badge gray">${esc(tr('\u00d7{n} today', { n: 0 }))}</span></div>
+        </div>
+        <div class="pill-row" style="--i:2"><span class="pill">${esc(tr('Check now'))}</span></div>`
+    },
+    {
       title: 'Write it down',
       text: 'Use Notes for quick memos, lists and ideas. Pin the important ones and pick a colour. They save by themselves.',
       art: `
@@ -3108,6 +3457,18 @@
         <div class="mock-card" style="--i:1;background:#d9ebff;color:#1a2b2b">
           <div class="mc-row"><div><b>${esc(tr('Weekend trip ideas'))}</b><div class="mc-sub" style="color:#4a5a5a">${esc(tr('Notes'))}</div></div></div>
         </div>`
+    },
+    {
+      title: 'Where did the money go?',
+      text: 'Use Daily Budget. Set a monthly budget, log what you spend each day, and see how much you can still spend per day.',
+      art: `
+        <div class="mock-card" style="--i:0">
+          <div class="mc-row"><div><b>${esc(tr('Left this month'))}</b><div class="mc-sub">${esc(tr('RM 1,240 of RM 2,000'))}</div></div><span class="badge green">62%</span></div>
+        </div>
+        <div class="mock-card" style="--i:1">
+          <div class="mc-row"><div><b>${esc(tr('Lunch'))}</b><div class="mc-sub">${esc(tr('Today'))} &middot; ${esc(tr('Food'))}</div></div><b>RM 12.00</b></div>
+        </div>
+        <div class="pill-row" style="--i:2"><span class="pill">${esc(tr('Can spend per day'))}</span></div>`
     },
     {
       title: 'Where did I put it?',
@@ -3144,18 +3505,6 @@
         <div class="mock-card" style="--i:2">
           <div class="mc-row"><div><b>${esc(tr('Car insurance'))}</b><div class="mc-sub">RM 1,200.00 &middot; ${esc(tr('Yearly'))}</div></div><span class="badge green">${esc(tr('{n}d left', { n: 90 }))}</span></div>
         </div>`
-    },
-    {
-      title: 'Where did the money go?',
-      text: 'Use Daily Budget. Set a monthly budget, log what you spend each day, and see how much you can still spend per day.',
-      art: `
-        <div class="mock-card" style="--i:0">
-          <div class="mc-row"><div><b>${esc(tr('Left this month'))}</b><div class="mc-sub">${esc(tr('RM 1,240 of RM 2,000'))}</div></div><span class="badge green">62%</span></div>
-        </div>
-        <div class="mock-card" style="--i:1">
-          <div class="mc-row"><div><b>${esc(tr('Lunch'))}</b><div class="mc-sub">${esc(tr('Today'))} &middot; ${esc(tr('Food'))}</div></div><b>RM 12.00</b></div>
-        </div>
-        <div class="pill-row" style="--i:2"><span class="pill">${esc(tr('Can spend per day'))}</span></div>`
     },
     {
       title: 'Your data, on every device',

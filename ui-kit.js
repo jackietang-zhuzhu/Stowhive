@@ -47,6 +47,9 @@
     user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0116 0"/>',
     doc: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 16h6"/>',
     edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
+    star: '<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
+    eye: '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+    copy: '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 012-2h9"/>',
     more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>'
   };
   function ic(n) {
@@ -75,7 +78,7 @@
   }
 
   // Donut: rows = [{v, k}] where k is a palette index
-  var PAL = ['#0f766e', '#f59e0b', '#6366f1', '#ec4899', '#0ea5e9', '#84cc16', '#94a3b8'];
+  var PAL = ['#0f766e', '#f59e0b', '#6366f1', '#ec4899', '#0ea5e9', '#84cc16', '#94a3b8', '#ef4444', '#14b8a6', '#a855f7', '#f97316', '#3b82f6'];
   function donut(rows) {
     var tot = rows.reduce(function (s, r) { return s + r.v; }, 0);
     if (!tot) return '';
@@ -210,12 +213,75 @@
   var st = { name: '', img: '', hits: 0 };
   try { var raw = JSON.parse(localStorage.getItem(KEY) || 'null'); if (raw) st = { name: raw.name || '', img: raw.img || '', hits: raw.hits | 0 }; } catch (e) {}
   function save() { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) { /* storage full: keep going in memory */ } }
+  // Hurt state: the more it is stung, the more it cries and the more lumps swell up on its head.
+  // Lumps sit along the top outline of the head (the hexagon's upper edges), clear of the eyes.
+  var LUMPS = [[50, 3, 17, -4], [33, 9, 12, 10], [67, 7, 14, -10], [19, 17, 13, -20], [82, 15, 11, 18], [42, 1, 9, 0], [58, 0, 9, 8]];
+  var TEARS = [[0, 1], [1, 2], [2, 3]]; // [level, tears per eye]
+  var lumps = document.createElement('div'); lumps.className = 'rage-lumps'; lumps.setAttribute('aria-hidden', 'true');
+  if (pic.parentNode) pic.parentNode.appendChild(lumps);
+  var hurtKey = '', hurtFirst = true, prevN = 0;
+  // Kawaii face drawn over the photo (eyes on the left and right sides, blush, small mouth). Changes with the sting count.
+  function faceSvg(lv) {
+    var D = '#111827', W = '#fff', P = 'rgba(251,113,133,.75)';
+    var eyeAt = function (cx, inner) { return '<g transform="translate(' + cx + ' 56)">' + inner + '</g>'; };
+    var shine = function (r) { return '<circle cx="' + (-2.6 * r) + '" cy="' + (-2.8 * r) + '" r="' + (2.6 * r) + '" fill="#fff"/><circle cx="' + (2.6 * r) + '" cy="' + (2.6 * r) + '" r="' + (1.3 * r) + '" fill="#fff"/>'; };
+    var eyes, mouth, brows = '';
+    if (lv === 0) {
+      var e0 = '<circle r="7.5" fill="' + D + '" stroke="' + W + '" stroke-width="1.3"/>' + shine(1);
+      eyes = eyeAt(25, e0) + eyeAt(75, e0);
+      mouth = '<path d="M44 80 Q50 85 56 80" fill="none" stroke="' + W + '" stroke-width="1.8" stroke-linecap="round"/>';
+    } else if (lv === 1) {
+      var e1 = '<circle r="9" fill="#7dd3fc" stroke="' + W + '" stroke-width="1.3"/><circle cy="-1.4" r="7.6" fill="' + D + '"/>' + shine(1.15);
+      eyes = eyeAt(25, e1) + eyeAt(75, e1);
+      brows = '<path d="M14 42 L31 36 M69 36 L86 42" stroke="' + W + '" stroke-width="2" stroke-linecap="round" fill="none"/>';
+      mouth = '<path d="M43 83 Q46.5 78 50 83 T57 83" fill="none" stroke="' + W + '" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>';
+    } else if (lv === 2) {
+      var chev = function (s) { var p = (-6 * s) + ',-7 ' + (5 * s) + ',0 ' + (-6 * s) + ',7'; return '<polyline points="' + p + '" fill="none" stroke="' + D + '" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><polyline points="' + p + '" fill="none" stroke="' + W + '" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>'; };
+      eyes = eyeAt(25, chev(1)) + eyeAt(75, chev(-1));
+      brows = '<path d="M14 40 L31 34 M69 34 L86 40" stroke="' + W + '" stroke-width="2" stroke-linecap="round" fill="none"/>';
+      mouth = '<path d="M43 85 Q50 77 57 85" fill="none" stroke="' + W + '" stroke-width="2" stroke-linecap="round"/>';
+    } else {
+      var sw = '<path d="M8 0 A8 8 0 1 1 -8 0 A6 6 0 1 1 4 0 A3 3 0 1 1 -2 0" fill="none" stroke="' + D + '" stroke-width="4.4" stroke-linecap="round"/><path d="M8 0 A8 8 0 1 1 -8 0 A6 6 0 1 1 4 0 A3 3 0 1 1 -2 0" fill="none" stroke="' + W + '" stroke-width="2" stroke-linecap="round"/>';
+      eyes = eyeAt(25, sw) + eyeAt(75, sw);
+      brows = '<path d="M14 40 L31 34 M69 34 L86 40" stroke="' + W + '" stroke-width="2" stroke-linecap="round" fill="none"/>';
+      mouth = '<ellipse cx="50" cy="84" rx="6" ry="7.5" fill="' + D + '" stroke="' + W + '" stroke-width="1.5"/><ellipse cx="50" cy="88" rx="3.4" ry="2.6" fill="#fb7185"/>';
+    }
+    var blush = '<ellipse cx="14" cy="70" rx="7" ry="4.5" fill="' + P + '"/><ellipse cx="86" cy="70" rx="7" ry="4.5" fill="' + P + '"/>';
+    return '<svg class="rage-face" viewBox="0 0 100 116" aria-hidden="true">' + blush + brows + eyes + mouth + '</svg>';
+  }
+  function hurt() {
+    var h = st.hits, on = !!st.img;
+    var n = on ? Math.min(LUMPS.length, Math.floor(h / 7)) : 0;
+    var lv = !on ? 0 : h >= 80 ? 3 : h >= 30 ? 2 : h >= 10 ? 1 : 0;
+    box.style.setProperty('--swell', on ? Math.min(1, h / 150).toFixed(3) : '0');
+    box.setAttribute('data-hurt', String(lv));
+    var eyes = on, key = n + '|' + lv + '|' + on + '|' + eyes;
+    if (key === hurtKey) return;
+    hurtKey = key;
+    var html = '';
+    if (eyes) html += faceSvg(lv);
+    for (var i = 0; i < n; i++) {
+      var L = LUMPS[i], grow = 1 + Math.min(1, h / 150) * 0.2;
+      html += '<i class="rage-lump' + (!hurtFirst && i >= prevN ? ' new' : '') + '" style="left:' + L[0] + '%;top:' + L[1] + '%;width:' + (L[2] * grow).toFixed(1) + '%;rotate:' + L[3] + 'deg"></i>';
+    }
+    if (lv > 0) {
+      var per = TEARS[lv - 1][1];
+      [25, 75].forEach(function (ex) {
+        for (var t = 0; t < per; t++) {
+          html += '<b class="rage-tear" style="left:' + ex + '%;animation-duration:' + (2.4 - lv * 0.55).toFixed(2) + 's;animation-delay:' + (-(t * (2.4 - lv * 0.55)) / per - (ex > 50 ? 0.4 : 0)).toFixed(2) + 's"></b>';
+        }
+      });
+    }
+    lumps.innerHTML = html;
+    prevN = n; hurtFirst = false;
+  }
   function paint() {
     nameEl.value = st.name;
     if (st.img) { img.src = st.img; img.hidden = false; } else { img.removeAttribute('src'); img.hidden = true; }
     pic.classList.toggle('has-img', !!st.img);
     pic.title = st.img ? '' : tr('Tap to add a photo');
     countEl.textContent = st.hits === 1 ? tr('Stung 1 time') : tr('Stung {n} times', { n: st.hits });
+    hurt();
   }
   function bee() { return document.getElementById('bee-cursor'); }
   function restart(el, cls, ms) {
@@ -276,7 +342,7 @@
 
   function impact(x, y) {
     var r = pic.getBoundingClientRect(), br = box.getBoundingClientRect();
-    restart(pic, 'shake', 340);
+    restart(pic.parentNode || pic, 'jolt', 440); // the whole head (photo, face, lumps) bounces together
     var b = bee(); if (b) restart(b, 'jab', 280);
     // red bump where the stinger landed (keep at most 8 on screen)
     var bump = document.createElement('i'), sz = 14 + Math.random() * 8;
@@ -321,19 +387,19 @@
   paint();
 })();
 
-/* Smooth light/dark switch: cross-fade the whole page instead of snapping. Runs before app.js handles the click. */
+/* Smooth light/dark and language switch: cross-fade the whole page instead of snapping. Runs before app.js handles the click. */
 (function () {
   'use strict';
   var busy = false, reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
   document.addEventListener('click', function (e) {
-    var b = e.target.closest && e.target.closest('[data-action="toggle-theme"]');
+    var b = e.target.closest && e.target.closest('[data-action="toggle-theme"], [data-action="toggle-lang"]');
     if (!b || busy || reduce) return;
     var root = document.documentElement;
     if (document.startViewTransition) {
       e.stopImmediatePropagation(); busy = true;
       var vt = document.startViewTransition(function () { b.click(); });
       vt.finished.then(function () { busy = false; }, function () { busy = false; });
-    } else {
+    } else if (b.getAttribute('data-action') === 'toggle-theme') {
       root.classList.add('theme-fade');
       setTimeout(function () { root.classList.remove('theme-fade'); }, 650);
     }
