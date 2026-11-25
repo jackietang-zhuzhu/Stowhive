@@ -580,7 +580,15 @@
   "Change the date to move this entry.": "改日期可以把这条日记移到别的日子。",
   "Replace the entry on {d}?": "替换 {d} 的日记?",
   "That day already has a diary entry. It will be replaced.": "这一天已经有日记了,会被替换。",
-  "Undone": "已撤销"
+  "Undone": "已撤销",
+  "Vent corner": "出气包",
+  "Who made you mad?": "谁惹你生气了?",
+  "Stung {n} times": "已蜇 {n} 下",
+  "Stung 1 time": "已蜇 1 下",
+  "Tap to add a photo": "点击添加照片",
+  "Change photo": "换照片",
+  "Reset": "清零",
+  "Ouch!": "哎哟!"
 };
   var lang = 'en', listeners = [], missing = {};
   try { lang = localStorage.getItem(KEY) || (/^zh/i.test(navigator.language || '') ? 'zh' : 'en'); } catch (e) {}
@@ -592,6 +600,7 @@
   function apply() {
     document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
     document.querySelectorAll('[data-i18n]').forEach(function (el) { el.textContent = t(el.getAttribute('data-i18n')); });
+    document.querySelectorAll('[data-i18n-title]').forEach(function (el) { el.title = t(el.getAttribute('data-i18n-title')); });
     document.querySelectorAll('[data-i18n-ph]').forEach(function (el) { el.placeholder = t(el.getAttribute('data-i18n-ph')); });
     document.querySelectorAll('.lang-btn').forEach(function (b) { b.textContent = lang === 'zh' ? 'EN' : '\u4e2d'; });
   }

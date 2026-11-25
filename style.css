@@ -335,7 +335,7 @@ main { padding: 14px 14px 0; }
   }
   .top h1 { display: none; }
   .top-bar { justify-content: flex-start; margin-bottom: 6px; }
-  .top-right [data-action="account"], .top-right [data-action="toggle-theme"] { display: none; } /* live in the sidebar */
+  .top-right [data-action="account"] { display: none; } /* lives in the sidebar; the dark-mode button stays in the banner */
   #today-label { font-size: 15px; }
   .sum-grid { gap: 14px; }
   .sum-card { padding: 8px 18px; }
@@ -1383,3 +1383,95 @@ html.bee-on :is(input:not([type="checkbox"]):not([type="radio"]):not([type="rang
 @keyframes beeFlapR { from { transform: rotate(-10deg) scaleY(1); } to { transform: rotate(16deg) scaleY(.4); } }
 @keyframes beeBob { from { transform: translateY(-1.2px); } to { transform: translateY(1.2px); } }
 @media (prefers-reduced-motion: reduce) { #bee-cursor .bee-b, #bee-cursor .bee-w { animation: none !important; } }
+
+/* Desktop: the top banner stays put (same size and place on every page, and it does not scroll away) */
+@media (min-width: 900px) {
+  .top, body[data-tab="home"] .top {
+    position: sticky; top: 14px; z-index: 30; flex: none;
+    margin-top: 14px; padding: 10px 22px 12px;
+    box-shadow: 0 0 0 14px var(--bg); /* hides anything scrolling underneath the gap around it */
+  }
+  body[data-tab="home"] .sum-big { font-size: 22px; }
+  body[data-tab="home"] .sum-big.small { font-size: 22px; }
+  .next-up, body[data-tab="home"] .next-up { display: none !important; }
+}
+
+/* ==========================================================================
+   Vent corner: a pinned sidebar card. Hover the photo with the bee and click to sting.
+   Desktop sidebar only; hidden on phones and on very short windows.
+   ========================================================================== */
+.rage { display: none; }
+@media (min-width: 900px) and (min-height: 680px) {
+  .rage {
+    display: flex; flex-direction: column; align-items: stretch; gap: 6px;
+    position: absolute; left: 12px; right: 12px; bottom: 86px;
+    padding: 10px 12px; border-radius: 16px; background: var(--bg);
+    border: 1px solid transparent; transition: border-color .2s;
+  }
+  .rage:hover { border-color: var(--red-bg); }
+}
+.rage-pic-wrap { flex: none; align-self: center; order: 0; width: 88px; height: 102px; }
+@media (min-height: 800px) { .rage-pic-wrap { width: 124px; height: 143px; } }
+.rage-pic {
+  position: relative; display: block; width: 100%; height: 100%; padding: 0; border: 0; cursor: pointer;
+  background: var(--primary-mid); transition: background .2s, transform .15s;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+}
+.rage-pic:hover { background: var(--red); }
+.rage-pic:active { transform: scale(.95); }
+.rage-pic:focus-visible { outline: 2px solid var(--red); outline-offset: 2px; }
+.rage-in {
+  position: absolute; inset: 3px; overflow: hidden; background: var(--primary-soft); color: var(--primary);
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+}
+.rage-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; -webkit-user-drag: none; user-select: none; }
+.rage-img[hidden] { display: none; }
+.rage-ph { position: absolute; inset: 0; display: grid; place-items: center; }
+.rage-ph .ic { width: 28px; height: 28px; opacity: .7; }
+.rage-pic.has-img .rage-ph { display: none; }
+.rage-pic.shake { animation: rageShake .32s cubic-bezier(.36, .07, .19, .97); }
+.rage-marks { position: absolute; inset: 0; pointer-events: none; }
+.rage-bump {
+  position: absolute; border-radius: 50%; transform: translate(-50%, -50%);
+  background: radial-gradient(circle, rgba(255, 255, 255, .85) 0 12%, rgba(239, 68, 68, .9) 14% 52%, rgba(220, 38, 38, .35) 70%, transparent 74%);
+  animation: rageBump 2.4s ease-out forwards;
+}
+.rage-pop {
+  position: absolute; z-index: 5; pointer-events: none; font-weight: 800; font-size: 15px; color: var(--red);
+  text-shadow: 0 1px 0 var(--card); white-space: nowrap; animation: ragePop .9s ease-out forwards;
+}
+.rage-body { display: contents; }
+.rage-head { order: -1; display: flex; align-items: center; justify-content: space-between; gap: 4px; font-size: 14px; color: var(--red); }
+.rage-btn {
+  flex: none; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%;
+  background: transparent; color: var(--muted); cursor: pointer;
+}
+.rage-btn .ic { width: 14px; height: 14px; }
+.rage-btn:hover { background: var(--primary-soft); color: var(--text); }
+.rage-name {
+  order: 1; width: 100%; min-width: 0; padding: 6px 10px; font: inherit; font-size: 14px; font-weight: 700; color: var(--text);
+  background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+}
+.rage-name:focus { outline: none; border-color: var(--red); }
+.rage-name::placeholder { font-weight: 500; color: var(--muted); }
+.rage-foot { order: 2; display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--muted); }
+@keyframes rageShake {
+  10%, 90% { transform: translateX(-2px) rotate(-2deg); } 20%, 80% { transform: translateX(3px) rotate(2deg); }
+  30%, 50%, 70% { transform: translateX(-4px) rotate(-3deg); } 40%, 60% { transform: translateX(4px) rotate(3deg); }
+}
+@keyframes rageBump { 0% { opacity: 0; transform: translate(-50%, -50%) scale(.2); } 12% { opacity: 1; transform: translate(-50%, -50%) scale(1.15); } 25% { transform: translate(-50%, -50%) scale(1); } 100% { opacity: 0; transform: translate(-50%, -50%) scale(1); } }
+@keyframes ragePop { 0% { opacity: 0; transform: translateY(0) scale(.6); } 20% { opacity: 1; transform: translateY(-6px) scale(1.15); } 100% { opacity: 0; transform: translateY(-30px) scale(1); } }
+@media (prefers-reduced-motion: reduce) { .rage-pic.shake, .rage-pop { animation: none !important; } }
+
+/* The bee shows its stinger over the vent photo and lunges on every click */
+.bee-sting { opacity: 0; transition: opacity .12s; }
+#bee-cursor.sting .bee-sting { opacity: 1; }
+#bee-cursor.sting .bee-w { animation-duration: .045s; }
+#bee-cursor.jab svg { animation: beeJab .26s ease-out; }
+@keyframes beeJab { 0% { transform: none; } 35% { transform: translate(-7px, 6px) rotate(-24deg) scale(1.4); } 100% { transform: none; } }
+
+/* Smooth light/dark switch */
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: .55s; animation-timing-function: ease-in-out; }
+html.theme-fade, html.theme-fade *, html.theme-fade *::before, html.theme-fade *::after {
+  transition: background-color .5s ease, color .5s ease, border-color .5s ease, fill .5s ease, stroke .5s ease, box-shadow .5s ease, opacity .5s ease !important;
+}

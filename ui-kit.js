@@ -154,38 +154,149 @@
     + '<ellipse class="bee-w l" cx="-5" cy="-7" rx="6" ry="4" fill="#fff" stroke-width="1.4" opacity=".92"/>'
     + '<ellipse class="bee-w r" cx="5" cy="-7" rx="6" ry="4" fill="#fff" stroke-width="1.4" opacity=".92"/>'
     + '<ellipse cx="0" cy="0" rx="8" ry="6" fill="#f5b83d" stroke-width="1.4"/>'
+    + '<path class="bee-sting" d="M-7.5 2.5L-13.5 5.5" stroke-width="1.8" fill="none"/>'
     + '<path d="M-2 -5v10M3 -5v10" stroke-width="2" fill="none"/></g></svg>';
   var HOT = 'a,button,label,summary,select,[data-action],[role="button"],[role="checkbox"],input[type="checkbox"],input[type="radio"],input[type="range"],input[type="date"],input[type="time"],input[type="submit"]';
   var TXT = 'input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="date"]):not([type="time"]):not([type="submit"]):not([type="button"]),textarea,[contenteditable="true"]';
   var root = document.documentElement, el = document.createElement('div');
   el.id = 'bee-cursor'; el.setAttribute('aria-hidden', 'true'); el.innerHTML = SVG;
   document.body.appendChild(el);
-  var x = 0, y = 0, px = 0, lean = 0, raf = 0, shown = false;
+  // The bee only appears over the vent photo (.rage-pic); everywhere else the normal pointer is used.
+  var x = 0, y = 0, px = 0, lean = 0, raf = 0, on = false;
   function frame() {
     raf = 0;
     var target = Math.max(-22, Math.min(22, (x - px) * 1.2));
     lean += (target - lean) * 0.25; px = x;
     el.style.transform = 'translate3d(' + x + 'px,' + y + 'px,0) rotate(' + (12 + lean).toFixed(1) + 'deg)';
-    if (Math.abs(target) > 0.1 || Math.abs(lean) > 0.2) raf = requestAnimationFrame(frame);
+    if (on && (Math.abs(target) > 0.1 || Math.abs(lean) > 0.2)) raf = requestAnimationFrame(frame);
   }
   function go() { if (!raf) raf = requestAnimationFrame(frame); }
+  function setOn(v) {
+    if (v === on) return;
+    on = v;
+    root.classList.toggle('bee-on', v);
+    el.classList.toggle('show', v);
+    if (v) { px = x; lean = 0; go(); }
+    else { el.classList.remove('sting', 'jab', 'down'); }
+  }
   document.addEventListener('pointermove', function (e) {
     if (e.pointerType && e.pointerType !== 'mouse') return;
     x = e.clientX; y = e.clientY;
-    if (!shown) { shown = true; px = x; root.classList.add('bee-on'); el.classList.add('show'); }
-    go();
+    if (on) go();
   }, { passive: true });
   document.addEventListener('pointerdown', function (e) {
-    if (e.pointerType && e.pointerType !== 'mouse') { shown = false; root.classList.remove('bee-on'); el.classList.remove('show'); return; }
-    el.classList.add('down');
+    if (e.pointerType && e.pointerType !== 'mouse') { setOn(false); return; }
+    if (on) el.classList.add('down');
   }, true);
   document.addEventListener('pointerup', function () { el.classList.remove('down'); }, true);
   document.addEventListener('mouseover', function (e) {
     var t = e.target;
     if (!t || !t.closest) return;
-    el.classList.toggle('hot', !!t.closest(HOT));
-    el.classList.toggle('text', !!t.closest(TXT));
+    x = e.clientX; y = e.clientY;
+    setOn(!!t.closest('.rage-pic'));
   }, true);
-  root.addEventListener('mouseleave', function () { el.classList.remove('show'); });
-  root.addEventListener('mouseenter', function () { if (shown) el.classList.add('show'); });
+  root.addEventListener('mouseleave', function () { setOn(false); });
+})();
+
+/* Vent corner: a photo + name pinned in the sidebar. Hover with the bee, click to sting. Saved on this device only. */
+(function () {
+  'use strict';
+  var box = document.getElementById('rage');
+  if (!box) return;
+  var KEY = 'stowhive.rage';
+  var pic = box.querySelector('.rage-pic'), img = box.querySelector('.rage-img'), marks = box.querySelector('.rage-marks');
+  var nameEl = document.getElementById('rage-name'), countEl = document.getElementById('rage-count'), file = document.getElementById('rage-file');
+  var tr = function (s, v) { return window.L ? window.L.t(s, v) : s; };
+  var st = { name: '', img: '', hits: 0 };
+  try { var raw = JSON.parse(localStorage.getItem(KEY) || 'null'); if (raw) st = { name: raw.name || '', img: raw.img || '', hits: raw.hits | 0 }; } catch (e) {}
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch (e) { /* storage full: keep going in memory */ } }
+  function paint() {
+    nameEl.value = st.name;
+    if (st.img) { img.src = st.img; img.hidden = false; } else { img.removeAttribute('src'); img.hidden = true; }
+    pic.classList.toggle('has-img', !!st.img);
+    pic.title = st.img ? '' : tr('Tap to add a photo');
+    countEl.textContent = st.hits === 1 ? tr('Stung 1 time') : tr('Stung {n} times', { n: st.hits });
+  }
+  function bee() { return document.getElementById('bee-cursor'); }
+  function restart(el, cls, ms) {
+    el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls);
+    setTimeout(function () { el.classList.remove(cls); }, ms);
+  }
+
+  // Resize the picked photo to a small cover-cropped JPEG so it stays light in storage
+  function loadPhoto(f) {
+    if (!f || !/^image\//.test(f.type)) return;
+    var fr = new FileReader();
+    fr.onload = function () {
+      var im = new Image();
+      im.onload = function () {
+        var W = 180, H = 208, c = document.createElement('canvas'); c.width = W; c.height = H;
+        var k = Math.max(W / im.width, H / im.height), w = im.width * k, h = im.height * k;
+        var ctx = c.getContext('2d'); ctx.drawImage(im, (W - w) / 2, (H - h) / 2, w, h);
+        st.img = c.toDataURL('image/jpeg', 0.85); save(); paint();
+      };
+      im.src = fr.result;
+    };
+    fr.readAsDataURL(f);
+  }
+
+  function sting(e) {
+    if (!st.img) { file.click(); return; }
+    var r = pic.getBoundingClientRect(), br = box.getBoundingClientRect(), x, y;
+    if (e && e.detail > 0) { x = e.clientX - r.left; y = e.clientY - r.top; }
+    else { x = r.width * (0.3 + Math.random() * 0.4); y = r.height * (0.3 + Math.random() * 0.4); } // keyboard press
+    restart(pic, 'shake', 340);
+    var b = bee(); if (b) restart(b, 'jab', 280);
+    // red bump where the stinger landed (keep at most 8 on screen)
+    var bump = document.createElement('i'), sz = 14 + Math.random() * 8;
+    bump.className = 'rage-bump'; bump.style.cssText = 'left:' + (x - 3) + 'px;top:' + (y - 3) + 'px;width:' + sz + 'px;height:' + sz + 'px';
+    marks.appendChild(bump);
+    while (marks.children.length > 8) marks.removeChild(marks.firstChild);
+    setTimeout(function () { if (bump.parentNode) bump.parentNode.removeChild(bump); }, 2500);
+    // floating "-1"
+    var pop = document.createElement('span');
+    pop.className = 'rage-pop'; pop.textContent = Math.random() < 0.25 ? tr('Ouch!') : '-1';
+    pop.style.left = (r.left - br.left + x - 8) + 'px'; pop.style.top = (r.top - br.top + y - 14) + 'px';
+    box.appendChild(pop);
+    setTimeout(function () { if (pop.parentNode) pop.parentNode.removeChild(pop); }, 950);
+    st.hits++; save(); paint();
+  }
+
+  box.addEventListener('click', function (e) {
+    var t = e.target.closest('[data-rage]');
+    if (!t) return;
+    var a = t.getAttribute('data-rage');
+    if (a === 'hit') sting(e);
+    else if (a === 'photo') file.click();
+    else if (a === 'reset') { st.hits = 0; save(); paint(); }
+  });
+  file.addEventListener('change', function () { loadPhoto(file.files && file.files[0]); file.value = ''; });
+  nameEl.addEventListener('input', function () { st.name = nameEl.value; save(); });
+  nameEl.addEventListener('keydown', function (e) { if (e.key === 'Enter') nameEl.blur(); });
+
+  // The bee shows its stinger while it hovers the photo
+  pic.addEventListener('pointerenter', function (e) { var b = bee(); if (b && st.img && (!e.pointerType || e.pointerType === 'mouse')) b.classList.add('sting'); });
+  pic.addEventListener('pointerleave', function () { var b = bee(); if (b) b.classList.remove('sting'); });
+
+  if (window.L && window.L.onChange) window.L.onChange(paint);
+  paint();
+})();
+
+/* Smooth light/dark switch: cross-fade the whole page instead of snapping. Runs before app.js handles the click. */
+(function () {
+  'use strict';
+  var busy = false, reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest && e.target.closest('[data-action="toggle-theme"]');
+    if (!b || busy || reduce) return;
+    var root = document.documentElement;
+    if (document.startViewTransition) {
+      e.stopImmediatePropagation(); busy = true;
+      var vt = document.startViewTransition(function () { b.click(); });
+      vt.finished.then(function () { busy = false; }, function () { busy = false; });
+    } else {
+      root.classList.add('theme-fade');
+      setTimeout(function () { root.classList.remove('theme-fade'); }, 650);
+    }
+  }, true);
 })();
