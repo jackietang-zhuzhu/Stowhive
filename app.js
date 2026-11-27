@@ -824,6 +824,8 @@
   /* ------------------------------------------------------------------ */
   const HIDE_START_KEY = 'stowhive.start.hide';
   const HELP_KEY = 'stowhive.help';
+  const HELP_SHOW_KEY = 'stowhive.help.show'; // page help banners are hidden unless turned on in Settings
+  const helpShown = () => lsGet(HELP_SHOW_KEY) === '1';
   const lsGet = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
   const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } };
 
@@ -841,15 +843,15 @@
     const renew = o => ({ ...base(), status: 'active', isTrial: false, ...o });
     return {
       assets: [
-        asset({ name: 'Canon camera', category: 'Electronics', purchaseDate: offsetDay(-200), price: 3200, warrantyExpiry: offsetDay(165), locationText: 'Bedroom closet, 2nd shelf' }),
-        asset({ name: 'Living room aircon', category: 'Appliances', purchaseDate: offsetDay(-700), price: 2400, warrantyExpiry: offsetDay(20), locationText: 'Living room', maintenanceCycleMonths: 6, lastMaintenanceDate: lastService, nextMaintenanceDate: addMonths(lastService, 6) }),
-        asset({ name: 'Spare house keys', category: 'Other', locationText: 'Kitchen drawer, left side' })
+        asset({ name: tr('Canon camera'), category: 'Electronics', purchaseDate: offsetDay(-200), price: 3200, warrantyExpiry: offsetDay(165), locationText: tr('Bedroom closet, 2nd shelf') }),
+        asset({ name: tr('Living room aircon'), category: 'Appliances', purchaseDate: offsetDay(-700), price: 2400, warrantyExpiry: offsetDay(20), locationText: tr('Living room'), maintenanceCycleMonths: 6, lastMaintenanceDate: lastService, nextMaintenanceDate: addMonths(lastService, 6) }),
+        asset({ name: tr('Spare house keys'), category: 'Other', locationText: tr('Kitchen drawer, left side') })
       ],
       renewals: [
         renew({ title: 'Netflix', type: 'subscription', amount: 55, cycle: 'monthly', nextDueDate: offsetDay(2), remindDaysBefore: 3 }),
         renew({ title: 'iCloud', type: 'subscription', amount: 12.9, cycle: 'monthly', nextDueDate: offsetDay(18), remindDaysBefore: 3 }),
-        renew({ title: 'Passport', type: 'document', amount: 0, cycle: 'onetime', nextDueDate: offsetDay(25), remindDaysBefore: 30 }),
-        renew({ title: 'Car insurance', type: 'document', amount: 1200, cycle: 'yearly', nextDueDate: offsetDay(90), remindDaysBefore: 30 })
+        renew({ title: tr('Passport'), type: 'document', amount: 0, cycle: 'onetime', nextDueDate: offsetDay(25), remindDaysBefore: 30 }),
+        renew({ title: tr('Car insurance'), type: 'document', amount: 1200, cycle: 'yearly', nextDueDate: offsetDay(90), remindDaysBefore: 30 })
       ]
     };
   }
@@ -954,6 +956,7 @@
     Object.keys(PAGE_HELP).forEach(tab => {
       const el = $('#help-' + tab);
       if (!el) return;
+      if (!helpShown()) { el.innerHTML = ''; return; }
       const h = PAGE_HELP[tab];
       const open = helpIsOpen(tab);
       el.innerHTML = `
@@ -1616,10 +1619,7 @@
 
   function renderAssets() {
     $('#asset-stats').innerHTML = ''; // the header already shows the count and total value
-    $('#asset-filters').innerHTML = !db.assets.length ? '' : ASSET_FILTERS.map(([k, l]) => {
-      const n = db.assets.filter(a => assetFlag(a, k)).length;
-      return `<button class="chip-btn ${ui.assetFilter === k ? 'active' : ''}" data-action="asset-filter" data-f="${k}">${esc(tr(l))}${k !== 'all' ? ` (${n})` : ''}</button>`;
-    }).join('');
+    ui.assetFilter = 'all'; // the status filter row was removed: the header card already shows what needs attention
     $('#asset-cats').innerHTML = ['All', ...catNames()].map(c =>
       `<button class="chip-btn ${ui.assetCat === c ? 'active' : ''}" data-action="asset-cat" data-cat="${esc(c)}">${esc(tr(c))}</button>`).join('');
 
@@ -1655,7 +1655,7 @@
         ${o.i ? `<span class="ti">${o.i}</span>` : ''}
         <span class="tl">${esc(tr(o.l))}</span>
         ${o.s ? `<small>${esc(tr(o.s))}</small>` : ''}
-        ${o.del ? `<span class="tile-x" role="button" aria-label="Remove ${esc(o.l)}" title="Remove" data-wz-act="${esc(o.del)}" data-value="${esc(o.v)}">&times;</span>` : ''}
+        ${o.del ? `<span class="tile-x" role="button" aria-label="${esc(tr('Remove {v}', { v: o.l }))}" title="${esc(tr('Remove'))}" data-wz-act="${esc(o.del)}" data-value="${esc(o.v)}">&times;</span>` : ''}
       </button>`).join('')}</div>`;
   }
 
@@ -2112,10 +2112,10 @@
   function renderQuickAdd() {
     const have = new Set(db.renewals.map(r => (r.title || '').trim().toLowerCase()));
     const opts = QUICK_ADD.map((p, i) => ({ p, i }))
-      .filter(x => x.p.type === ui.renewTab && !have.has(x.p.t.toLowerCase()));
+      .filter(x => x.p.type === ui.renewTab && !have.has(x.p.t.toLowerCase()) && !have.has(tr(x.p.t).toLowerCase()));
     $('#quick-wrap').innerHTML = opts.length
       ? `<div class="quick-l">${esc(tr('Quick add: just pick a date'))}</div><div class="chip-row">${opts.map(x =>
-          `<button type="button" class="chip-btn" data-action="quick-add" data-i="${x.i}">${x.p.i} ${esc(x.p.t)}</button>`).join('')}</div>`
+          `<button type="button" class="chip-btn" data-action="quick-add" data-i="${x.i}">${x.p.i} ${esc(tr(x.p.t))}</button>`).join('')}</div>`
       : '';
   }
 
@@ -2131,13 +2131,13 @@
         <p class="card-sub">${esc(tr('We will remind you {n} days before.', { n: p.remind }))}</p>
         <button type="submit" class="btn primary block">${esc(tr('Save'))}</button>
       </form>`;
-    openModal(tr('Add {v}', { v: p.t }), html, root => {
+    openModal(tr('Add {v}', { v: tr(p.t) }), html, root => {
       $('#qa-form', root).addEventListener('submit', ev => {
         ev.preventDefault();
         const f = Object.fromEntries(new FormData(ev.target));
         if (!f.nextDueDate) return;
         const rec = {
-          id: uid(), title: p.t, type: p.type, amount: Number(f.amount) || 0, cycle: p.cycle,
+          id: uid(), title: tr(p.t), type: p.type, amount: Number(f.amount) || 0, cycle: p.cycle,
           nextDueDate: f.nextDueDate, remindDaysBefore: p.remind, status: 'active', isTrial: false,
           ...(isPL ? { left: Math.max(1, Math.round(Number(f.left)) || 1) } : {}),
           createdAt: new Date().toISOString()
@@ -2146,21 +2146,17 @@
           ui.renewTab = p.type;
           closeModal();
           renderAll();
-          toast(tr('{v} added', { v: p.t }));
+          toast(tr('{v} added', { v: tr(p.t) }));
         }
       });
     });
   }
 
+  // Only shows free-trial reminders now; the breakdown/insights are already covered by the header cards.
   function subAnalysisHtml() {
-    const subs = activeSubscriptions().map(r => ({ r, y: monthlyEquivalent(r) * 12 })).filter(x => x.y > 0).sort((a, b) => b.y - a.y);
     const trials = db.renewals.filter(r => r.type === 'subscription' && r.status === 'active' && r.isTrial && r.nextDueDate && daysUntil(r.nextDueDate) >= 0 && daysUntil(r.nextDueDate) <= 7);
-    if (!subs.length && !trials.length) return '';
-    const tot = subs.reduce((t, x) => t + x.y, 0), top = subs.slice(0, 5), pal = window.SHI.pal;
-    return `<section class="panel sub-ana"><h3>${esc(tr('Subscription insights'))}</h3><div class="pn-body">
-      ${top.length ? `<div class="stack">${top.map((x, i) => `<i style="flex:${x.y};background:${pal[i]}"></i>`).join('')}</div>
-      ${top.map((x, i) => `<div class="cat-row"><span class="cat-n"><i class="sw" style="background:${pal[i]}"></i>${esc(x.r.title)}</span><span class="cat-bar"><i style="width:${Math.max(3, Math.round(x.y / top[0].y * 100))}%"></i></span><span class="cat-v">${esc(money(x.y))} <small>${Math.round(x.y / tot * 100)}%</small></span></div>`).join('')}
-      <p class="panel-note">${esc(tr('Biggest: {name}. Cancelling it saves {amount} a year.', { name: top[0].r.title, amount: money(top[0].y) }))}</p>` : ''}
+    if (!trials.length) return '';
+    return `<section class="panel sub-ana"><div class="pn-body">
       ${trials.map(r => `<p class="panel-note warn">${esc(tr('{name}: free trial ends in {n}d', { name: r.title, n: daysUntil(r.nextDueDate) }))}</p>`).join('')}
       </div></section>`;
   }
@@ -2435,22 +2431,22 @@
   }
 
   function buildCsv() {
-    const rows = [['Kind', 'Name', 'Category / type', 'Amount', 'Added', 'Due date', 'Status', 'Details']];
+    const rows = [['Kind', 'Name', 'Category / type', 'Amount', 'Added', 'Due date', 'Status', 'Details'].map(h => tr(h))];
     db.assets.forEach(a => rows.push([
-      'Asset', a.name, a.category, a.price, a.purchaseDate, a.warrantyExpiry ? a.warrantyExpiry : '',
-      a.warrantyExpiry ? (daysUntil(a.warrantyExpiry) < 0 ? 'Warranty expired' : 'In warranty') : 'No warranty',
-      [a.locationText ? 'Location: ' + a.locationText : '', a.nextMaintenanceDate ? 'Next service: ' + a.nextMaintenanceDate : ''].filter(Boolean).join('; ')
+      tr('Asset'), a.name, tr(a.category || ''), a.price, a.purchaseDate, a.warrantyExpiry ? a.warrantyExpiry : '',
+      a.warrantyExpiry ? (daysUntil(a.warrantyExpiry) < 0 ? tr('Warranty expired') : tr('In warranty')) : tr('No warranty'),
+      [a.locationText ? tr('Location: {v}', { v: a.locationText }) : '', a.nextMaintenanceDate ? tr('Next service: {v}', { v: a.nextMaintenanceDate }) : ''].filter(Boolean).join('; ')
     ]));
     db.renewals.forEach(r => rows.push([
-      r.type === 'subscription' ? 'Subscription' : r.type === 'paylater' ? 'PayLater' : 'Renewal', r.title, CYCLE_LABEL[r.cycle] || '', r.amount,
+      tr(r.type === 'subscription' ? 'Subscription' : r.type === 'paylater' ? 'PayLater' : 'Renewal'), r.title, CYCLE_LABEL[r.cycle] || '', r.amount,
       (r.createdAt || '').slice(0, 10), r.nextDueDate,
-      r.status === 'active' ? (r.isTrial ? 'Active (free trial)' : 'Active') : 'Archived', r.type === 'paylater' ? `${Number(r.left) || 0} instalment(s) left` : ''
+      r.status === 'active' ? tr(r.isTrial ? 'Active (free trial)' : 'Active') : tr('Archived'), r.type === 'paylater' ? tr('{n} instalment(s) left', { n: Number(r.left) || 0 }) : ''
     ]));
-    db.schedule.forEach(x => rows.push(['Schedule', x.title, x.time || '', '', x.date, '', x.repeat ? 'Repeats ' + x.repeat : (x.done ? 'Done' : 'Open'), '']));
-    db.habits.forEach(h => rows.push(['Habit', h.name, '', '', (h.createdAt || '').slice(0, 10), '', `${(h.dates || []).length} day(s) done`, '']));
-    db.todos.forEach(x => rows.push(['To-do', x.title, '', '', (x.createdAt || '').slice(0, 10), '', x.done ? 'Done' : 'Open', '']));
-    db.journal.forEach(x => rows.push(['Diary', x.text || '', x.mood ? 'Mood ' + x.mood + '/5' : '', '', x.date, '', '', '']));
-    db.expenses.forEach(x => rows.push(['Spending', x.note || '', catOf(x).en, x.amount, x.date, '', '', '']));
+    db.schedule.forEach(x => rows.push([tr('Schedule'), x.title, x.time || '', '', x.date, '', x.repeat ? tr('Repeats {v}', { v: tr(REPEAT_LABEL[x.repeat] || x.repeat) }) : (x.done ? tr('Done') : tr('Open')), '']));
+    db.habits.forEach(h => rows.push([tr('Habit'), h.name, '', '', (h.createdAt || '').slice(0, 10), '', tr('{n} day(s) done', { n: (h.dates || []).length }), '']));
+    db.todos.forEach(x => rows.push([tr('To-do'), x.title, '', '', (x.createdAt || '').slice(0, 10), '', x.done ? tr('Done') : tr('Open'), '']));
+    db.journal.forEach(x => rows.push([tr('Diary'), x.text || '', x.mood ? tr('Mood {n}/5', { n: x.mood }) : '', '', x.date, '', '', '']));
+    db.expenses.forEach(x => rows.push([tr('Spending'), x.note || '', tr(catOf(x).en), x.amount, x.date, '', '', '']));
     return '\ufeff' + rows.map(r => r.map(csvCell).join(',')).join('\r\n');
   }
 
@@ -2494,6 +2490,11 @@
         <div class="seg">
           <button type="button" class="${isDark() ? '' : 'on'}" data-action="set-theme" data-theme="light">${esc(tr('Light'))}</button>
           <button type="button" class="${isDark() ? 'on' : ''}" data-action="set-theme" data-theme="dark">${esc(tr('Dark'))}</button>
+        </div></div>
+      <div class="set-row"><span>${esc(tr('Page help'))}</span>
+        <div class="seg">
+          <button type="button" class="${helpShown() ? 'on' : ''}" data-action="set-help" data-on="1">${esc(tr('Show'))}</button>
+          <button type="button" class="${helpShown() ? '' : 'on'}" data-action="set-help" data-on="0">${esc(tr('Hide'))}</button>
         </div></div>
       <div class="set-row"><span>${esc(tr('Guide'))}</span>
         <button type="button" class="btn small ghost" data-action="show-intro">${esc(tr('Show guide'))}</button></div>
@@ -2780,7 +2781,7 @@
         <input name="title" class="note-title" type="text" maxlength="80" placeholder="${esc(tr('Title'))}" value="${esc(ex ? ex.title : preset ? preset.title : '')}" aria-label="${esc(tr('Title'))}">
         <textarea name="body" class="note-body" maxlength="20000" placeholder="${esc(tr('Write something...'))}" aria-label="${esc(tr('Note'))}">${esc(ex ? ex.body : preset ? preset.body : '')}</textarea>
         <div class="note-tools">
-          <div class="note-colors" role="group" aria-label="${esc(tr('Color'))}">${NOTE_COLORS.map(c => `<button type="button" class="nc-dot nc-${c || 'n'} ${st.color === c ? 'on' : ''}" data-nc="${c}" aria-label="${esc(tr('Color'))}"></button>`).join('')}</div>
+          <div class="note-colors" role="group" aria-label="${esc(tr('Colour'))}">${NOTE_COLORS.map(c => `<button type="button" class="nc-dot nc-${c || 'n'} ${st.color === c ? 'on' : ''}" data-nc="${c}" aria-label="${esc(tr('Colour'))}"></button>`).join('')}</div>
           <button type="button" class="btn small ghost" data-np="1">${esc(tr(st.pinned ? 'Pinned' : 'Pin'))}</button>
         </div>
         <p class="panel-note">${esc(tr('Notes are saved automatically.'))}</p>
@@ -2976,7 +2977,7 @@
     const ex = id ? db.work.find(w => w.id === id) : null;
     if (id && !ex) return;
     const wid = ex ? ex.id : uid();
-    const ph = 'placeholder="Dashboard https://example.com" maxlength="3000" spellcheck="false"';
+    const ph = 'placeholder="' + esc(tr('Dashboard https://example.com')) + '" maxlength="3000" spellcheck="false"';
     openModal(ex ? 'Edit task' : 'New task', `<form id="work-form" class="note-form" autocomplete="off" novalidate>
         ${fInput('Title', 'title', 'text', ex ? ex.title : '', 'maxlength="60" required')}
         ${fText('What to check', 'note', ex ? ex.note : '', 2, 'maxlength="300"')}
@@ -3415,6 +3416,11 @@
       applyTheme(dark);
       $$('[data-action="set-theme"]').forEach(b => b.classList.toggle('on', b === el));
     },
+    'set-help': el => {
+      lsSet(HELP_SHOW_KEY, el.dataset.on === '1' ? '1' : '0');
+      renderHelp();
+      $$('[data-action="set-help"]').forEach(b => b.classList.toggle('on', b === el));
+    },
     'show-intro': () => openIntro(true),
     account: () => { accTabKey = 'acct'; openAccount(); },
     'acc-tab': el => {
@@ -3486,6 +3492,8 @@
           <span class="pill">${IC('briefcase')} ${esc(tr('Daily Work'))}</span>
           <span class="pill">${IC('doc')} ${esc(tr('Notes'))}</span>
           <span class="pill">${IC('bell')} ${esc(tr('Bills & Dates'))}</span>
+          <span class="pill">${IC('box')} ${esc(tr('My Items'))}</span>
+          <span class="pill">${IC('wallet')} ${esc(tr('Daily Budget'))}</span>
         </div>`
     },
     {
@@ -3552,7 +3560,7 @@
     },
     {
       title: 'Two extras, when you need them',
-      text: 'My Items remembers where things are kept and when a warranty ends. Daily Budget shows how much you can spend each day. Both sit lower in the menu.',
+      text: 'My Items remembers where things are kept and when a warranty ends. Daily Budget shows how much you can spend each day. Both are in the bottom bar.',
       art: `
         <div class="mock-card" style="--i:0">
           <div class="mc-row"><div><b>${esc(tr('Camera'))}</b><div class="mc-tags"><span class="tag loc">${IC('pin')} ${esc(tr('Closet, 2nd shelf'))}</span></div></div><span class="badge green">${esc(tr('In warranty · {n}d', { n: 214 }))}</span></div>
@@ -3597,7 +3605,7 @@
     root.id = 'intro';
     root.setAttribute('role', 'dialog');
     root.setAttribute('aria-modal', 'true');
-    root.setAttribute('aria-label', 'Welcome guide');
+    root.setAttribute('aria-label', tr('Welcome guide'));
     root.innerHTML = `
       <div class="intro-card">
         <button type="button" class="intro-skip" data-in="skip">${esc(tr('Skip'))}</button>
@@ -3611,7 +3619,7 @@
           </div>
         </div>
         <div class="intro-dots">
-          ${INTRO_SLIDES.map((s, i) => `<button type="button" class="dot" data-in="go" data-i="${i}" aria-label="Go to slide ${i + 1}"></button>`).join('')}
+          ${INTRO_SLIDES.map((s, i) => `<button type="button" class="dot" data-in="go" data-i="${i}" aria-label="${esc(tr('Go to slide {n}', { n: i + 1 }))}"></button>`).join('')}
         </div>
         <div class="intro-btns">
           <button type="button" class="btn ghost" data-in="back">${esc(tr('Back'))}</button>

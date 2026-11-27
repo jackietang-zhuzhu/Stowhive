@@ -36,9 +36,9 @@
           </svg>Stowhive</h1>
         <div class="top-right">
           <span id="today-label"></span>
-          <button type="button" class="help-btn lang-btn" data-action="toggle-lang" aria-label="Language" title="Language / 语言"></button>
-          <button type="button" class="help-btn" data-action="toggle-theme" aria-label="Toggle dark mode"><span data-ic="moon"></span></button>
-          <button type="button" class="help-btn" data-action="account" aria-label="Account and settings" title="Account and settings"><span data-ic="user"></span></button>
+          <button type="button" class="help-btn lang-btn" data-action="toggle-lang" data-i18n-aria="Language" aria-label="Language" title="Language / 语言"></button>
+          <button type="button" class="help-btn" data-action="toggle-theme" data-i18n-aria="Toggle dark mode" aria-label="Toggle dark mode"><span data-ic="moon"></span></button>
+          <button type="button" class="help-btn" data-action="account" data-i18n-aria="Account and settings" aria-label="Account and settings" data-i18n-title="Account and settings" title="Account and settings"><span data-ic="user"></span></button>
         </div>
       </div>
       <div id="summary"></div>
@@ -46,7 +46,7 @@
 
     <main>
       <div id="today-tabs" class="subtabs today-tabs" style="display:none">
-        <button type="button" class="subtab active" data-action="tab" data-tab="home" data-i18n="Today">Today</button>
+        <button type="button" class="subtab active" data-action="tab" data-tab="home" data-i18n="Home">Home</button>
         <button type="button" class="subtab" data-action="tab" data-tab="work" data-i18n="Daily Work">Daily Work</button>
       </div>
       <!-- Tab 1: Assets -->
@@ -78,7 +78,6 @@
         </div>
         <div id="asset-stats"></div>
         <div id="asset-cats" class="chip-row"></div>
-        <div id="asset-filters" class="chip-row"></div>
         <div id="asset-list" class="list"></div>
       </section>
 
@@ -103,12 +102,12 @@
     </main>
 
     <div class="fab-wrap">
-      <button id="fab" class="fab" data-action="fab" aria-label="Add new"><span class="fab-plus">+</span><span class="fab-text">Add Item</span></button>
+      <button id="fab" class="fab" data-action="fab" data-i18n-aria="Add new" aria-label="Add new"><span class="fab-plus">+</span><span class="fab-text">Add Item</span></button>
     </div>
 
     <nav class="bottom-nav" data-name="Stowhive">
       <button class="nav-btn active" data-action="tab" data-tab="home">
-        <span class="nav-ico" data-ic="home"></span><span class="nl" data-i18n="Today">Today</span>
+        <span class="nav-ico" data-ic="home"></span><span class="nl" data-i18n="Home">Home</span>
       </button>
       <button class="nav-btn" data-action="tab" data-tab="notes">
         <span class="nav-ico" data-ic="doc"></span><span class="nl" data-i18n="Notes">Notes</span>
@@ -122,10 +121,10 @@
       <button class="nav-btn nav-more-only" data-action="tab" data-tab="budget">
         <span class="nav-ico" data-ic="wallet"></span><span class="nl" data-i18n="Daily Budget">Daily Budget</span>
       </button>
-      <button class="nav-btn nav-more" data-action="more" aria-label="More">
+      <button class="nav-btn nav-more" data-action="more" data-i18n-aria="More" aria-label="More">
         <span class="nav-ico" data-ic="more"></span><span class="nl" data-i18n="More">More</span>
       </button>
-      <button type="button" class="side-acct" data-action="account" aria-label="Account and settings">
+      <button type="button" class="side-acct" data-action="account" data-i18n-aria="Account and settings" aria-label="Account and settings">
         <span class="sa-av" id="sa-av">?</span>
         <span class="sa-tx"><b id="sa-name">Not signed in</b><small id="sa-sub">Tap to sign in and sync</small></span>
         <span class="sa-gear" aria-hidden="true">&#9881;</span>

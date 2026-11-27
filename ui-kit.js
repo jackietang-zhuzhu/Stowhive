@@ -388,18 +388,93 @@
   paint();
 })();
 
-/* Smooth light/dark and language switch: cross-fade the whole page instead of snapping. Runs before app.js handles the click. */
+/* Smooth light/dark and language switch: theme grows as a circle, language rolls the words up like a counter. Runs before app.js handles the click. */
 (function () {
   'use strict';
   var busy = false, reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var WORD = /[A-Za-z\u3400-\u9fff]/, SKIP = 'script,style,noscript,textarea,select,option,svg,.lang-btn,#splash,#bee-cursor';
+  // Wrap every visible piece of text in a plain inline span, so it can slide without changing the layout
+  // (position: relative + top works on inline text; transform would not). y = 0 at the top of the screen, 1 at the bottom.
+  function wrapWords() {
+    var list = [], vh = window.innerHeight, vw = window.innerWidth, nodes = [];
+    var tw = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+      acceptNode: function (n) {
+        var p = n.parentElement;
+        if (!p || !WORD.test(n.nodeValue) || p.closest(SKIP)) return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+    while (tw.nextNode() && nodes.length < 600) nodes.push(tw.currentNode);
+    var range = document.createRange();
+    nodes.forEach(function (n) {
+      range.selectNodeContents(n);
+      var r = range.getBoundingClientRect();
+      if (!r.width || !r.height || r.bottom < 0 || r.top > vh || r.right < 0 || r.left > vw) return;
+      var sp = document.createElement('span');
+      sp.className = 'lang-roll';
+      n.parentNode.insertBefore(sp, n); sp.appendChild(n);
+      list.push({ el: sp, y: Math.max(0, Math.min(1, r.top / vh)) });
+    });
+    return list;
+  }
+  function unwrapWords(list) {
+    list.forEach(function (w) {
+      var sp = w.el, p = sp.parentNode;
+      w.el.getAnimations().forEach(function (a) { a.cancel(); });
+      if (!p) return; // already replaced by a re-render
+      while (sp.firstChild) p.insertBefore(sp.firstChild, sp);
+      p.removeChild(sp);
+    });
+  }
   document.addEventListener('click', function (e) {
     var b = e.target.closest && e.target.closest('[data-action="toggle-theme"], [data-action="toggle-lang"]');
     if (!b || busy || reduce) return;
     var root = document.documentElement;
+    if (b.getAttribute('data-action') === 'toggle-lang') {
+      // Language: the words roll like a counter. Old words slide up and fade, new words rise from below,
+      // top of the screen first, like a wave. Cards, bars and icons never move.
+      e.stopImmediatePropagation(); busy = true;
+      b.classList.remove('flipping'); void b.offsetWidth; b.classList.add('flipping');
+      var out = wrapWords(), last = 0;
+      out.forEach(function (w) {
+        var d = w.y * 70; last = Math.max(last, d);
+        w.el.animate([{ top: '0', opacity: 1 }, { top: '-.55em', opacity: 0 }], { duration: 140, delay: d, easing: 'ease-in', fill: 'forwards' });
+      });
+      setTimeout(function () {
+        unwrapWords(out);
+        b.click();                 // busy is true, so this click goes straight to app.js and swaps the language
+        var inn = wrapWords(), end = 0;
+        inn.forEach(function (w) {
+          var d = w.y * 160; end = Math.max(end, d);
+          w.el.animate([{ top: '.55em', opacity: 0 }, { top: '0', opacity: 1 }], { duration: 260, delay: d, easing: 'cubic-bezier(.2, .8, .3, 1.25)', fill: 'backwards' });
+        });
+        setTimeout(function () { unwrapWords(inn); }, end + 300);
+      }, last + 150);
+      setTimeout(function () { b.classList.remove('flipping'); busy = false; }, 650);
+      return;
+    }
     if (document.startViewTransition) {
       e.stopImmediatePropagation(); busy = true;
+      var isTheme = b.getAttribute('data-action') === 'toggle-theme';
+      var x = 0, y = 0, end = 0;
+      if (isTheme) {
+        // The new theme grows out of the button like a circle, slowly, until it covers the whole page.
+        var r = b.getBoundingClientRect();
+        x = r.left + r.width / 2; y = r.top + r.height / 2;
+        end = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
+        root.classList.add('vt-theme');
+      }
       var vt = document.startViewTransition(function () { b.click(); });
-      vt.finished.then(function () { busy = false; }, function () { busy = false; });
+      if (isTheme) {
+        vt.ready.then(function () {
+          root.animate(
+            { clipPath: ['circle(0px at ' + x + 'px ' + y + 'px)', 'circle(' + end + 'px at ' + x + 'px ' + y + 'px)'] },
+            { duration: 900, easing: 'cubic-bezier(.4, 0, .2, 1)', pseudoElement: '::view-transition-new(root)' }
+          );
+        }, function () { /* ignore */ });
+      }
+      var done = function () { busy = false; root.classList.remove('vt-theme'); };
+      vt.finished.then(done, done);
     } else if (b.getAttribute('data-action') === 'toggle-theme') {
       root.classList.add('theme-fade');
       setTimeout(function () { root.classList.remove('theme-fade'); }, 650);
