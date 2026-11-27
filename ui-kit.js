@@ -434,12 +434,17 @@
     // snapshots over blurred layers), so they stutter. Keep it plain and instant instead:
     //   language -> swaps straight away, no animation
     //   theme    -> every colour changes in the same frame (individual colour fades are switched off for that moment)
-    if (window.matchMedia && (matchMedia('(max-width: 899px)').matches || matchMedia('(pointer: coarse)').matches)) {
-      if (b.getAttribute('data-action') === 'toggle-theme') {
+    var mobile = !!(window.matchMedia && (matchMedia('(max-width: 899px)').matches || matchMedia('(pointer: coarse)').matches));
+    if (mobile) {
+      // Language stays instant on phones (too many animated spans).
+      if (b.getAttribute('data-action') === 'toggle-lang') return;
+      // Theme: keep the circle reveal when the browser supports it (handled below, with a shorter duration).
+      // Otherwise fall back to the instant switch.
+      if (!document.startViewTransition) {
         root.classList.add('theme-instant'); // app.js handles this same click right after us, then we release it
         requestAnimationFrame(function () { requestAnimationFrame(function () { root.classList.remove('theme-instant'); }); });
+        return;
       }
-      return;
     }
     if (b.getAttribute('data-action') === 'toggle-lang') {
       // Language: the words roll like a counter. Old words slide up and fade, new words rise from below,
@@ -475,16 +480,18 @@
         end = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
         root.classList.add('vt-theme');
       }
+      // On phones, switch off per-element colour fades during the reveal: the snapshot does the animating.
+      if (mobile) root.classList.add('theme-instant');
       var vt = document.startViewTransition(function () { b.click(); });
       if (isTheme) {
         vt.ready.then(function () {
           root.animate(
             { clipPath: ['circle(0px at ' + x + 'px ' + y + 'px)', 'circle(' + end + 'px at ' + x + 'px ' + y + 'px)'] },
-            { duration: 900, easing: 'cubic-bezier(.4, 0, .2, 1)', pseudoElement: '::view-transition-new(root)' }
+            { duration: mobile ? 550 : 900, easing: 'cubic-bezier(.4, 0, .2, 1)', pseudoElement: '::view-transition-new(root)' }
           );
         }, function () { /* ignore */ });
       }
-      var done = function () { busy = false; root.classList.remove('vt-theme'); };
+      var done = function () { busy = false; root.classList.remove('vt-theme', 'theme-instant'); };
       vt.finished.then(done, done);
     } else if (b.getAttribute('data-action') === 'toggle-theme') {
       root.classList.add('theme-fade');
