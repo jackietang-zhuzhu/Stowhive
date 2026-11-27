@@ -1862,3 +1862,6 @@ html.vt-theme::view-transition-new(root) { z-index: 2; }
 
 /* Settings sheet rebuilt in place (a switch was tapped): no entrance animation, so it does not blink. */
 .modal-backdrop.no-anim, .modal-backdrop.no-anim .sheet { animation: none; }
+
+/* Phones: while the theme flips, no element fades its colour on its own, so everything changes in the same frame. */
+html.theme-instant, html.theme-instant *, html.theme-instant *::before, html.theme-instant *::after { transition: none !important; }
