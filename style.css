@@ -222,7 +222,7 @@ main { padding: 14px 14px 0; }
   padding-bottom: env(safe-area-inset-bottom);
   background: var(--surface);
   box-shadow: 0 -4px 18px rgba(15, 70, 64, 0.08);
-  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 :root[data-theme="dark"] .bottom-nav { box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.06); }
 .nav-btn {
@@ -844,7 +844,7 @@ label.btn { display: inline-block; }
 /* Desktop Home: the page scrolls inside itself, charts and calendar always get full height */
 @media (min-width: 900px) {
   body[data-tab="home"] #app { overflow: hidden; }
-  body[data-tab="home"] main { padding: 14px 32px 16px; }
+  body[data-tab="home"] main { padding: 16px 32px 16px; } /* same top gap as the other tabs so the tab bar does not jump */
   #home { flex: 1; min-height: 0; gap: 12px; overflow-y: auto; padding: 2px 4px 6px; scrollbar-width: thin; }
   #home > .sample-bar, #home > .start, #home > .home-quick { flex: none; margin-bottom: 0; }
   .home-add { display: none; } /* the sidebar already lists every page */
@@ -886,10 +886,9 @@ label.btn { display: inline-block; }
   .p-cal { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 
   /* Calendar: month grid on the left; add bar + the selected day on the right */
-  #cal { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); grid-template-rows: auto minmax(0, 1fr); column-gap: 22px; align-items: start; }
-  #cal > .cal-head, #cal > .cal-grid { grid-column: 1; }
-  #cal > .cal-list { grid-column: 2; grid-row: 1 / span 2; align-self: stretch; margin-top: 0; padding-top: 0; border-top: 0; min-height: 0; overflow-y: auto; padding-right: 4px; scrollbar-width: thin; }
-  .cal-grid { gap: 4px; height: 100%; grid-template-rows: auto repeat(6, minmax(0, 1fr)); }
+  #cal { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  #cal > .cal-grid { flex: 1; min-height: 0; }
+  .cal-grid { gap: 4px; grid-template-rows: auto repeat(6, minmax(0, 1fr)); }
   .cal-w { font-size: 12px; }
   .cal-day { height: auto; min-height: 28px; max-height: 76px; font-size: 14px; }
   .cal-list h4 { font-size: 14px; color: var(--text); font-weight: 700; margin-bottom: 8px; }
@@ -1702,7 +1701,118 @@ html.theme-fade, html.theme-fade *, html.theme-fade *::before, html.theme-fade *
   .home-col { min-height: 0; }
   .home-col > .p-tl { flex: none; }
   .p-cal { flex: none; overflow: visible; }
-  #cal { grid-template-rows: auto auto; }
   .cal-grid { height: auto; }
   .cal-day { height: 44px; max-height: none; }
 }
+
+/* Home: what needs doing today */
+.p-today .td-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
+.p-today .td-head h3 { margin: 0; }
+.td-list { display: flex; flex-direction: column; }
+.td-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 0; border: 0; border-bottom: 1px solid var(--line); background: none; font: inherit; color: inherit; text-align: left; }
+.td-row:last-child { border-bottom: 0; }
+.td-go { cursor: pointer; }
+.td-go:hover .td-main b { color: var(--primary); }
+.td-ic { flex: 0 0 24px; height: 24px; display: grid; place-items: center; color: var(--primary); }
+.td-ic .ic { width: 18px; height: 18px; }
+.td-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.td-main b { font-weight: 650; overflow-wrap: anywhere; }
+.td-main small { color: var(--muted); font-size: 12px; }
+.td-add { display: flex; gap: 8px; margin-top: 10px; }
+.td-add input { flex: 1; min-width: 0; padding: 9px 12px; border: 1px solid var(--field-line); border-radius: 12px; background: var(--surface); color: var(--text); font: inherit; }
+.td-add input:focus { outline: 2px solid var(--primary-ring); border-color: var(--primary); }
+@media (min-width: 900px) {
+  .p-today .td-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 24px; }
+  .p-today .td-row:nth-last-child(2):nth-child(odd) { border-bottom: 0; }
+}
+
+/* Daily Work: links are small pills kept on one line, so every card has the same shape */
+.dw-links { display: flex; flex-wrap: nowrap; gap: 6px; align-content: normal; min-height: 30px; }
+.dw-link { display: block; flex: 0 1 auto; min-width: 0; max-width: 100%; padding: 5px 11px; border-radius: 99px; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 899px) { .dw-list { grid-template-columns: minmax(0, 1fr); } }
+.dw-card, .dw-links, .dw-main { min-width: 0; }
+
+/* Daily Work: links are uniform small chips (icon tile + short name), same width everywhere */
+.dw-links { gap: 8px; min-height: 36px; }
+.dw-link { flex: none; display: inline-flex; align-items: center; gap: 7px; width: 112px; max-width: calc(50% - 4px); min-width: 0; height: 36px; padding: 0 10px 0 5px; border-radius: 10px; font-size: 12.5px; font-weight: 700; line-height: 1; overflow: hidden; }
+.dw-li { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 8px; background: hsl(var(--h, 170) 45% 38%); color: #fff; font-size: 14px; font-weight: 800; line-height: 1; }
+.dw-ln { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Today = Overview / Routine / Daily Work behind one nav entry */
+.today-tabs { grid-template-columns: repeat(var(--n, 3), 1fr); margin: 0 0 12px; flex: none; }
+
+/* Desktop: Overview, Routine and Daily Work all scroll the same way. The banner and tabs stay put and only the content below them scrolls, so the scrollbar sits under the tabs. */
+@media (min-width: 900px) {
+  body[data-tab="daily"] #app { overflow: hidden; }
+  body[data-tab="daily"] main { flex: 1 1 auto; min-height: 0; }
+  #view-daily.active { flex: 1 1 auto; min-height: 0; }
+  #view-daily.active > #daily { flex: 1 1 0; min-height: 0; overflow-y: auto; padding: 4px 4px 84px; scrollbar-width: thin; }
+  body[data-tab="work"] #app { overflow: hidden; }
+  body[data-tab="work"] main { flex: 1 1 auto; min-height: 0; }
+  #view-work.active > #work { scrollbar-width: thin; }
+  body[data-tab="budget"] #app { overflow: hidden; }
+  body[data-tab="budget"] main { flex: 1 1 auto; min-height: 0; }
+  #view-budget.active { flex: 1 1 auto; min-height: 0; }
+  #view-budget.active > #budget { flex: 1 1 0; min-height: 0; overflow-y: auto; padding: 4px 4px 24px; scrollbar-width: thin; }
+}
+
+/* Vent corner is gone: keep the account box at the bottom of the sidebar. */
+@media (min-width: 900px) {
+  .bottom-nav .side-acct { margin-top: auto; }
+}.sum-grid.one { grid-template-columns: minmax(0, 1fr); }
+#renew-stats:empty { display: none; }
+/* Banner mood face (Routine page) */
+.sum-big .mf { width: 22px; height: 22px; opacity: 1; vertical-align: -4px; color: #fff; }
+
+/* Routine (habits, to-do, mood) now sits under the calendar on the Today page */
+#home > #daily { flex: none; }
+#day-modal .hb-block .mini-form { margin-top: 10px; }
+.today-tabs.one { display: none !important; }
+@media (min-width: 900px) {
+  #home > #daily { margin-top: 0; }
+}
+
+/* Day sheet: view by default, tap a box to edit */
+.day-box { display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 8px; padding: 11px 14px; border: 1px dashed var(--line); border-radius: var(--radius-sm); background: var(--primary-faint); color: var(--muted); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.day-box:hover { border-color: var(--primary-mid); }
+.day-box.filled { border-style: solid; color: var(--text); }
+.day-box .j-mood { flex: none; }
+.day-off { margin-top: 6px; }
+
+.sum-card.tap { cursor: pointer; }
+#day-modal .td-list { display: flex; flex-direction: column; }
+
+/* Notes: template buttons are small chips in one row, not big tiles in the note grid */
+.note-ghosts { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
+.note-ghost { min-height: 0; flex-direction: row; gap: 8px; padding: 8px 14px; border-radius: 999px; font-size: 13px; }
+.note-ghost .ng-ic .ic { width: 16px; height: 16px; }
+
+/* ---- UI polish pass ---- */
+/* 1. banner text no longer clipped at the bottom */
+.sum-label, .sum-sub { line-height: 1.45; }
+.sum-card { padding-bottom: 12px; overflow: visible; }
+/* 2. no stuck focus ring after a mouse tap; keyboard users still get one */
+.subtab:focus:not(:focus-visible) { outline: none; }
+.subtab:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
+/* 3. Next 12 months empty state: very faint skeleton so text and button stay readable */
+.tline.idle { opacity: .3; }
+.tl-empty { background: radial-gradient(ellipse 70% 80% at 50% 50%, var(--card) 55%, transparent 100%); }
+/* 4. calendar: numbers always sit at the same height, rows are capped */
+.cal-day { align-items: flex-start; padding-top: 7px; max-height: 56px; }
+.cal-day.has-mood { justify-content: flex-start; padding-top: 4px; }
+/* 5. budget panel: three stat tiles in one row */
+.bd-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (min-width: 900px) { .bd-l .bd-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+/* 6. 'Show archived' as a switch */
+.inline-check { display: inline-flex; align-items: center; gap: 10px; cursor: pointer; }
+.inline-check input { appearance: none; -webkit-appearance: none; width: 38px; height: 22px; border-radius: 99px; background: var(--track); position: relative; flex: none; cursor: pointer; transition: background .15s; margin: 0; }
+.inline-check input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25); transition: transform .15s; }
+.inline-check input:checked { background: var(--primary); }
+.inline-check input:checked::after { transform: translateX(16px); }
+.inline-check input:focus-visible { outline: 2px solid var(--primary-ring); outline-offset: 2px; }
+/* 7. note pin: thumbtack, only shown on hover/focus or when pinned */
+.note-pin { opacity: 0; transition: opacity .12s; }
+.note-card:hover .note-pin, .note-card:focus-within .note-pin, .note-pin:focus-visible { opacity: .6; }
+.note-pin.on, .note-card:hover .note-pin:hover { opacity: 1; }
+.note-pin .ic { fill: none; }
+.note-pin.on .ic { fill: currentColor; fill-opacity: .3; }

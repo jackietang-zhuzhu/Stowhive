@@ -94,6 +94,24 @@
   }
 
   let db = Store.load();
+
+  // Optional pages. Off pages are hidden everywhere; the data is kept. Until the user decides, a page is on only if it already has data.
+  const FEAT_KEY = 'stowhive.features';
+  const FEATURES = [['assets', 'box', 'My Items', 'Where it is, warranty'], ['budget', 'wallet', 'Daily Budget', 'Set a monthly budget'], ['work', 'briefcase', 'Daily Work', 'Daily checks, links, logins']];
+  const featStore = () => { try { return JSON.parse(localStorage.getItem(FEAT_KEY)) || {}; } catch (e) { return {}; } };
+  const featHas = {
+    assets: () => (db.assets || []).length > 0,
+    budget: () => !!(db.budget && db.budget.amount > 0) || (db.expenses || []).length > 0,
+    work: () => (db.work || []).length > 0
+  };
+  const featOn = k => { const v = featStore()[k]; return typeof v === 'boolean' ? v : featHas[k](); };
+  function setFeat(k, on) { const st = featStore(); st[k] = !!on; try { localStorage.setItem(FEAT_KEY, JSON.stringify(st)); } catch (e) { /* ignore */ } }
+  function applyFeatures() {
+    ['assets', 'budget'].forEach(k => $$('.nav-btn[data-tab="' + k + '"]').forEach(b => { b.style.display = featOn(k) ? '' : 'none'; }));
+    const wp = $('#today-tabs [data-tab="work"]'), tt = $('#today-tabs');
+    if (wp) wp.style.display = featOn('work') ? '' : 'none';
+    if (tt) { tt.style.setProperty('--n', 2); tt.classList.toggle('one', !featOn('work')); }
+  }
   if (scrubOldData(db)) {
     try { Store.save(db); } catch (e) { /* ignore */ }
   }
@@ -303,12 +321,13 @@
       stampChanges(JSON.parse(snapshot));
       Store.save(db);
       Cloud.schedule();
-      return true;
     } catch (e) {
       db = JSON.parse(snapshot);
       toast('Storage is full. Delete some records and try again.');
       return false;
     }
+    try { renderHeader(); } catch (e) { /* ignore */ }
+    return true;
   }
 
   // Delete one record and offer a 6 second Undo that puts back only that record.
@@ -398,6 +417,7 @@
   }
 
   function closeModal() {
+    ui.dayModal = null;
     $('#modal-root').innerHTML = '';
     document.body.classList.remove('modal-open');
   }
@@ -437,35 +457,90 @@
   // Free trials are not billed yet, so they are left out of the monthly total.
   const activeSubscriptions = () => db.renewals.filter(r => r.type === 'subscription' && r.status === 'active' && !r.isTrial);
 
+  // The banner always has the same shape: two cards, each with a label, a big value and one small line. What they say depends on the page.
   function renderHeader() {
     $('#today-label').textContent = new Date().toLocaleDateString(LOCALE(), { weekday: 'short', day: 'numeric', month: 'short' });
-
+    const tab = ui.tab || 'home', t = todayISO();
+    const card = (label, big, sub, small) => `<div class="sum-card"><div class="sum-label">${esc(label)}</div><div class="sum-big${small ? ' small' : ''}">${esc(big)}</div><div class="sum-sub">${esc(sub)}</div></div>`;
     const alerts = collectAlerts();
     const red = alerts.filter(a => a.days <= 3).length;
     const yellow = alerts.filter(a => a.days > 3 && a.days <= 30).length;
     const green = alerts.filter(a => a.days > 30).length;
-    const subs = activeSubscriptions();
-    const monthly = subs.reduce((s, r) => s + monthlyEquivalent(r), 0)
-      + db.renewals.filter(r => r.type === 'paylater' && r.status === 'active').reduce((s, r) => s + (Number(r.amount) || 0), 0);
-    const next = alerts.filter(a => a.days <= 30).slice(0, 3);
+    const dueCard = () => card(tr('Due within 30 days'), String(red + yellow),
+      red + yellow ? [tr('{n} urgent', { n: red }), tr('{n} soon', { n: yellow }), tr('{n} safe', { n: green })].join(' \u00b7 ') : tr('Nothing due in the next 30 days'));
+    let a, b, next = [];
 
+    if (tab === 'home') {
+      const left = todayRows().length;
+      a = `<div class="sum-card tap" data-action="day-open" data-date="${t}" role="button" tabindex="0"><div class="sum-label">${esc(tr('What needs doing today'))}</div><div class="sum-big">${left}</div><div class="sum-sub">${esc(left ? tr('{n} to go', { n: left }) : tr('All done today'))}</div></div>`;
+      b = dueCard();
+    } else if (tab === 'daily') {
+      // Same data as the Routine page: habits and mood
+      const hs = activeHabits();
+      const top = hs.map(h => ({ h, n: habitStreak(h) })).sort((x, y) => y.n - x.n)[0];
+      const todayList = hs.filter(h => habitSched(h, t));
+      const doneN = todayList.filter(h => habitDone(h, t)).length;
+      a = card(tr('Habit streak'),
+        top && top.n > 0 ? tr('{n} day streak', { n: top.n }) : '-',
+        !hs.length ? tr('No habits yet. Add one below.')
+          : (top.n > 0 ? top.h.name + ' \u00b7 ' : '') + tr('{a}/{b} habits', { a: doneN, b: todayList.length }));
+      const jm = journalOn(t), mv = jm ? Number(jm.mood) : 0;
+      b = `<div class="sum-card"><div class="sum-label">${esc(tr('Mood & diary'))}</div><div class="sum-big small">${mv ? window.SHI.face(mv) + ' ' + esc(tr(moodOf(mv).en)) : '-'}</div><div class="sum-sub">${esc(jm && jm.text ? jm.text : tr('Nothing written yet.'))}</div></div>`;
+    } else if (tab === 'work') {
+      const n = db.work.length, d = db.work.filter(checkedToday).length;
+      const total = db.work.reduce((s, w) => s + checksOn(w, t).length, 0);
+      a = card(tr('Checked today'), n ? d + '/' + n : '-', !n ? tr('No links yet') : (d >= n ? tr('All checked today') : tr('{n} left to check', { n: n - d })));
+      b = card(tr('Checks today'), String(total), tr('Links opened today'));
+    } else if (tab === 'notes') {
+      const pinned = db.notes.filter(x => x.pinned).length;
+      const last = db.notes.slice().sort((x, y) => (y.updatedAt || y.createdAt || '').localeCompare(x.updatedAt || x.createdAt || ''))[0];
+      const ld = last ? (last.updatedAt || last.createdAt || '').slice(0, 10) : '';
+      a = card(tr('Notes'), String(db.notes.length), tr('{n} pinned', { n: pinned }));
+      b = card(tr('Last edited'), /^\d{4}-\d{2}-\d{2}$/.test(ld) ? parseISO(ld).toLocaleDateString(LOCALE(), { day: 'numeric', month: 'short' }) : '-',
+        last ? String(last.title || String(last.body || '').split('\n')[0] || '').slice(0, 28) : tr('No notes yet'), true);
+    } else if (tab === 'assets') {
+      const worth = db.assets.reduce((s, x) => s + (Number(x.price) || 0), 0);
+      const w = db.assets.filter(x => assetFlag(x, 'warranty')).length, sv = db.assets.filter(x => assetFlag(x, 'service')).length;
+      const att = db.assets.filter(x => assetFlag(x, 'warranty') || assetFlag(x, 'service') || assetFlag(x, 'expired')).length;
+      a = card(tr('My Items'), String(db.assets.length), worth > 0 ? tr('Worth {v}', { v: money(worth) }) : tr('Where it is, warranty'));
+      b = card(tr('Needs attention'), String(att), tr('{a} warranty ending \u00b7 {b} service due', { a: w, b: sv }));
+    } else if (tab === 'budget') {
+      const s = expenseStats(), has = s.budget > 0, over = has && s.left < 0;
+      a = card(tr('Spent this month'), money(s.spent), has ? tr('of {v}', { v: money(s.budget) }) + ' \u00b7 ' + tr('{p}% used', { p: Math.round(s.spent / s.budget * 100) }) : tr('No budget set'), true);
+      b = card(over ? tr('Over budget by') : tr('Left this month'), has ? money(Math.abs(s.left)) : '-',
+        has ? (over ? tr('Today') + ' ' + money(s.todaySum) : tr('Can spend per day') + ' ' + money(s.perDay)) : tr('Set a monthly budget'), true);
+    } else if (tab === 'renewals') {
+      const rt = ui.renewTab || 'subscription';
+      const act = db.renewals.filter(r => r.type === rt && r.status === 'active');
+      const dated = act.filter(r => r.nextDueDate).sort((x, y) => x.nextDueDate.localeCompare(y.nextDueDate));
+      const soon = dated.filter(r => daysUntil(r.nextDueDate) <= 30);
+      const overdue = dated.filter(r => daysUntil(r.nextDueDate) < 0).length;
+      const nx = dated[0];
+      const dueSub = !act.length ? tr('Nothing added yet')
+        : overdue ? tr('{n} overdue', { n: overdue }) + (soon.length > overdue ? ' \u00b7 ' + tr('{n} due within 30 days', { n: soon.length - overdue }) : '')
+        : soon.length ? tr('{n} due within 30 days', { n: soon.length }) + ' \u00b7 ' + tr('Next: {name}, {d}', { name: nx.title, d: daysText(daysUntil(nx.nextDueDate)) })
+        : nx ? tr('Next: {name}, {d}', { name: nx.title, d: daysText(daysUntil(nx.nextDueDate)) }) : tr('Nothing due in the next 30 days');
+      if (rt === 'subscription') {
+        const monthly = activeSubscriptions().reduce((t, r) => t + monthlyEquivalent(r), 0);
+        a = card(tr('Subscriptions'), String(act.length), dueSub);
+        b = card(tr('Monthly total'), money(monthly), tr('About {amount} a year', { amount: money(monthly * 12) }), true);
+      } else if (rt === 'paylater') {
+        const perMonth = act.reduce((t, r) => t + (Number(r.amount) || 0), 0);
+        const toPay = act.reduce((t, r) => t + (Number(r.amount) || 0) * (Number(r.left) || 0), 0);
+        a = card(tr('PayLater'), String(act.length), dueSub);
+        b = card(tr('Monthly instalments'), money(perMonth), tr('Still to pay') + ' ' + money(toPay), true);
+      } else {
+        a = card(tr('IDs & Renewals'), String(act.length), dueSub);
+        b = card(tr('Due within 30 days'), String(soon.length), overdue ? tr('{n} overdue', { n: overdue }) : nx ? tr('Next: {name}, {d}', { name: nx.title, d: daysText(daysUntil(nx.nextDueDate)) }) : tr('Nothing due in the next 30 days'));
+      }
+    } else {
+      a = dueCard();
+      next = alerts.filter(x => x.days <= 30).slice(0, 3);
+    }
+
+    if (!a && !b) a = dueCard(); // keep the header the same height on every page
     $('#summary').innerHTML = `
-      <div class="sum-grid">
-        <div class="sum-card">
-          <div class="sum-label">${esc(tr('Due within 30 days'))}</div>
-          <div class="sum-big">${red + yellow}</div>
-          ${red + yellow ? `<div class="sum-chips">
-            <span class="chip red">${esc(tr('{n} urgent', { n: red }))}</span>
-            <span class="chip yellow">${esc(tr('{n} soon', { n: yellow }))}</span>
-            <span class="chip green">${esc(tr('{n} safe', { n: green }))}</span>
-          </div>` : `<div class="sum-sub">${esc(tr('Nothing due in the next 30 days'))}</div>`}
-        </div>
-        <div class="sum-card">
-          <div class="sum-label">${esc(tr('Monthly fixed spend'))}</div>
-          <div class="sum-big small">${esc(money(monthly))}</div>
-          <div class="sum-sub">${esc(tr(subs.length === 1 ? '{n} active subscription' : '{n} active subscriptions', { n: subs.length }))}</div>
-        </div>
-      </div>
+      ${a || b ? `<div class="sum-grid${a && b ? '' : ' one'}">${a || ''}${b || ''}</div>` : ''}
       ${next.length ? `<div class="next-up">${next.map(a => `
         <div class="next-row" data-action="jump" data-tab="${a.tab}" data-id="${esc(a.id)}" data-sub="${a.sub || ''}">
           <span class="nm"><span class="kd">${esc(tr(a.kind))}</span>${esc(a.name)}</span>
@@ -588,16 +663,86 @@
     return '';
   };
 
-  const schRow = (x, iso) => {
+  const schRow = (x, iso, lite) => {
     const done = schDone(x, iso);
     return `<div class="sch-row ${done ? 'done' : ''}">
       <button type="button" class="sch-check" data-action="sch-toggle" data-id="${esc(x.id)}" data-date="${esc(iso)}" role="checkbox" aria-checked="${done ? 'true' : 'false'}" aria-label="${esc(tr('Mark as done'))}">${done ? '&#10003;' : ''}</button>
       <span class="sch-time">${esc(x.time || '')}</span>
       <span class="sch-title" data-action="sch-edit" data-id="${esc(x.id)}">${esc(x.title)}${x.repeat ? ` <span class="sch-rep">&#8635; ${esc(tr(REPEAT_LABEL[x.repeat]))}</span>` : ''}</span>
-      <button type="button" class="icon-btn" data-action="sch-edit" data-id="${esc(x.id)}" aria-label="${esc(tr('Edit'))}">${IC('edit')}</button>
-      <button type="button" class="icon-btn" data-action="sch-del" data-id="${esc(x.id)}" aria-label="${esc(tr('Delete'))}">&times;</button>
+      ${lite ? '' : `<button type="button" class="icon-btn" data-action="sch-edit" data-id="${esc(x.id)}" aria-label="${esc(tr('Edit'))}">${IC('edit')}</button>
+      <button type="button" class="icon-btn" data-action="sch-del" data-id="${esc(x.id)}" aria-label="${esc(tr('Delete'))}">&times;</button>`}
     </div>`;
   };
+
+  const calEmpty = (icon, txt) => `<div class="cal-empty">${IC(icon)}<span>${esc(txt)}</span></div>`;
+
+  // Everything for one day. The sheet opens in view mode; tapping a box switches that part (schedule, habits, diary) to edit mode.
+  function dayHtml(iso) {
+    const ed = ui.dayEdit || {}, t = todayISO();
+    const due = getEvents(iso, iso).filter(e => e.date === iso);
+    const daySch = schSorted(schOn(iso));
+    const box = (k, txt, extra) => `<button type="button" class="day-box ${extra || ''}" data-action="day-edit" data-k="${k}">${txt}</button>`;
+    const off = (k, label) => `<button type="button" class="link-btn day-off" data-action="day-edit" data-k="${k}" data-off="1">${esc(tr(label))}</button>`;
+
+    const rem = iso === t ? todayRows(true) : [];
+    const remind = rem.length ? `<div class="cal-sec"><h5 class="cal-sub">${esc(tr('Reminders'))}</h5><div class="td-list">${rem.join('')}</div></div>` : '';
+    const sch = `<div class="cal-sec sch-block">
+          <h5 class="cal-sub">${esc(tr('My schedule'))}</h5>
+          ${daySch.length ? daySch.map(x => schRow(x, iso, !ed.sch)).join('') : calEmpty('cal', tr('Nothing planned.'))}
+          ${ed.sch ? `<form id="sch-form" class="sch-form" data-date="${esc(iso)}" autocomplete="off">
+            <input name="title" type="text" maxlength="80" placeholder="${esc(tr('Add to schedule (e.g. Dentist)'))}" aria-label="${esc(tr('My schedule'))}" required>
+            <input name="time" type="text" inputmode="none" autocomplete="off" maxlength="5" placeholder="HH:MM" aria-label="${esc(tr('Time'))}" title="${esc(tr('Time'))} (24h)">
+            ${repPick('')}
+            <button type="submit" class="btn small">${esc(tr('Add'))}</button>
+          </form>${off('sch', 'Cancel')}` : box('sch', esc(tr('Add to schedule (e.g. Dentist)')))}
+        </div>`;
+
+    const dueB = `<div class="cal-sec due-block">
+          <h5 class="cal-sub">${esc(tr('Due this day'))}</h5>
+          ${due.length ? due.map(evRow).join('') : calEmpty('check', tr('Nothing due.'))}
+        </div>`;
+
+    const hs = activeHabits();
+    const ideas = HABIT_IDEAS.filter(n => !db.habits.some(h => h.name === tr(n)));
+    const habits = `<div class="cal-sec hb-block">
+          <h5 class="cal-sub">${esc(tr('Habits'))}</h5>
+          ${hs.length ? hs.map(h => habitRow(h, iso, !ed.hab)).join('') : `<p class="panel-note">${esc(tr('No habits yet. Pick one below or add your own.'))}</p>`}
+          ${ed.hab ? `${ideas.length ? `<div class="idea-row">${ideas.map(n => `<button type="button" class="chip-btn" data-action="hb-quick" data-name="${esc(n)}">+ ${esc(tr(n))}</button>`).join('')}</div>` : ''}
+          <form id="habit-form" class="mini-form" autocomplete="off">
+            <input name="name" type="text" maxlength="60" placeholder="${esc(tr('Add a habit (e.g. Drink water)'))}" aria-label="${esc(tr('Habits'))}" required>
+            <div class="wk-pick" role="group" aria-label="${esc(tr('Repeat'))}"><span class="wk-lab">${esc(tr('New habit repeats on'))}</span>${[1, 2, 3, 4, 5, 6, 0].map(i => `<label><input type="checkbox" name="wd" value="${i}" checked><span>${esc(wdNarrow(i))}</span></label>`).join('')}</div>
+            <button type="submit" class="btn small">${esc(tr('Add'))}</button>
+          </form>${off('hab', 'Done')}` : box('hab', esc(tr('Add a habit (e.g. Drink water)')))}
+        </div>`;
+
+    const cur = journalOn(iso), sel = cur ? Number(cur.mood) || 0 : 0;
+    const hint = tr(iso === t ? 'One line about today...' : 'One line about this day...');
+    const diary = iso > t ? '' : `<div class="cal-sec diary-block">
+          <h5 class="cal-sub">${esc(tr('Mood & diary'))}</h5>
+          ${ed.diary ? `<form id="journal-form" class="j-form" autocomplete="off">
+            <input type="hidden" name="date" value="${esc(iso)}">
+            <div class="mood-row">${MOODS.map(m => `<button type="button" class="mood-btn ${sel === m.v ? 'on' : ''}" data-action="mood-pick" data-v="${m.v}" title="${esc(tr(m.en))}" aria-label="${esc(tr(m.en))}">${m.i}</button>`).join('')}</div>
+            <input type="hidden" name="mood" value="${sel || ''}">
+            <input name="text" type="text" maxlength="120" placeholder="${esc(hint)}" value="${esc(cur ? cur.text : '')}" aria-label="${esc(tr('Mood & diary'))}">
+            <button type="submit" class="btn small">${esc(tr('Save'))}</button>
+            ${cur ? `<button type="button" class="link-btn" data-action="j-del" data-id="${esc(cur.id)}">${esc(tr('Delete'))}</button>` : ''}
+          </form>${off('diary', 'Cancel')}`
+          : box('diary', `${sel ? `<span class="j-mood">${window.SHI.face(sel)}</span>` : ''}<span>${esc(cur && cur.text ? cur.text : hint)}</span>`, cur && (sel || cur.text) ? 'filled' : '')}
+        </div>`;
+
+    return `<div id="day-modal">${remind}${sch}${dueB}${habits}${diary}</div>`;
+  }
+  function openDayModal(iso, edit) {
+    ui.dayEdit = Object.assign({}, edit);
+    openModal(fmtDate(iso), dayHtml(iso));
+    ui.dayModal = iso;
+  }
+  // Re-draw the open day sheet after something in it changed.
+  function refreshDayModal() {
+    if (!ui.dayModal) return;
+    const body = $('#day-modal') && $('#modal-root .sheet-body');
+    if (body) body.innerHTML = dayHtml(ui.dayModal); else ui.dayModal = null;
+  }
 
   function calendarHtml() {
     const first = parseISO(ui.calMonth);
@@ -616,34 +761,8 @@
       const n = (byDay[iso] || []).length;
       const sn = (schByDay[iso] || []).length;
       const jm = journalOn(iso), mf = jm && Number(jm.mood) ? window.SHI.face(jm.mood) : '';
-      cells += `<button type="button" class="cal-day ${iso === today ? 'today' : ''} ${iso === ui.calSel ? 'sel' : ''} ${n || sn ? 'has' : ''} ${mf ? 'has-mood' : ''} ${n ? urgency(daysUntil(iso)) : ''}" data-action="cal-day" data-date="${iso}"><span>${d}</span>${mf ? `<span class="cal-mood">${mf}</span>` : ''}${n || sn ? `<span class="cal-dots">${n ? '<i class="cal-dot"></i>' : ''}${sn ? '<i class="cal-dot sch"></i>' : ''}</span>` : ''}</button>`;
+      cells += `<button type="button" class="cal-day ${iso === today ? 'today' : ''} ${n || sn ? 'has' : ''} ${mf ? 'has-mood' : ''} ${n ? urgency(daysUntil(iso)) : ''}" data-action="cal-day" data-date="${iso}"><span>${d}</span>${mf ? `<span class="cal-mood">${mf}</span>` : ''}${n || sn ? `<span class="cal-dots">${n ? '<i class="cal-dot"></i>' : ''}${sn ? '<i class="cal-dot sch"></i>' : ''}</span>` : ''}</button>`;
     }
-    const picked = ui.calSel && ui.calSel >= start && ui.calSel <= end;
-    const list = picked ? (byDay[ui.calSel] || []) : evs;
-    const title = picked ? fmtDate(ui.calSel) : `${first.toLocaleDateString(LOCALE(), { month: 'long' })}: ${tr('{n} due', { n: evs.length })}`;
-    const daySch = picked ? schSorted(schByDay[ui.calSel] || []) : [];
-    const emptyHtml = (icon, txt) => `<div class="cal-empty">${IC(icon)}<span>${esc(txt)}</span></div>`;
-    const dueHtml = l => (l.length ? l.map(evRow).join('') : emptyHtml('check', tr('Nothing due.')));
-    const listHtml = picked ? `
-      <div class="cal-list"><h4>${esc(title)}</h4>
-        <form id="sch-form" class="sch-form" data-date="${ui.calSel}" autocomplete="off">
-          <input name="title" type="text" maxlength="80" placeholder="${esc(tr('Add to schedule (e.g. Dentist)'))}" aria-label="${esc(tr('My schedule'))}" required>
-          <input name="time" type="text" inputmode="none" autocomplete="off" maxlength="5" placeholder="HH:MM" aria-label="${esc(tr('Time'))}" title="${esc(tr('Time'))} (24h)">
-          ${repPick('')}
-          <button type="submit" class="btn small">${esc(tr('Add'))}</button>
-        </form>
-        <div class="cal-sec sch-block">
-          <h5 class="cal-sub">${esc(tr('My schedule'))}</h5>
-          ${daySch.length ? daySch.map(x => schRow(x, ui.calSel)).join('') : emptyHtml('cal', tr('Nothing planned.'))}
-        </div>
-        <div class="cal-sec due-block">
-          <h5 class="cal-sub">${esc(tr('Due this day'))}</h5>
-          ${dueHtml(list)}
-        </div>
-        ${(() => { const j = journalOn(ui.calSel); if (!j || !(Number(j.mood) || j.text)) return ''; return `<div class="cal-sec diary-block"><h5 class="cal-sub">${esc(tr('Diary'))}</h5><div class="cal-diary">${Number(j.mood) ? `<span class="j-mood">${window.SHI.face(j.mood)}</span>` : ''}<span class="j-text">${esc(j.text || '')}</span></div></div>`; })()}
-      </div>`
-      : `<div class="cal-list"><h4>${esc(title)}</h4>${dueHtml(list)}
-        <p class="panel-note">${esc(tr('Tap a day to see or add your schedule.'))}</p></div>`;
     return `<div id="cal">
       <div class="cal-head">
         <button type="button" class="icon-btn" data-action="cal-nav" data-d="-1" aria-label="${esc(tr('Previous month'))}">&#8249;</button>
@@ -651,7 +770,7 @@
         <button type="button" class="icon-btn" data-action="cal-nav" data-d="1" aria-label="${esc(tr('Next month'))}">&#8250;</button>
       </div>
       <div class="cal-grid">${Array.from({ length: 7 }, (_, i) => new Date(2024, 0, 1 + i).toLocaleDateString(LOCALE(), { weekday: 'narrow' })).map(w => `<span class="cal-w">${w}</span>`).join('')}${cells}</div>
-      ${listHtml}
+      <p class="panel-note">${esc(tr('Tap a day to see or add your schedule.'))}</p>
     </div>`;
   }
 
@@ -761,8 +880,8 @@
     if (lsGet(HIDE_START_KEY) === '1') return '';
     const real = a => a.some(x => !x.sample);
     const steps = [
-      { kind: 'asset', done: real(db.assets), en: 'Add something you own',
-        ex: 'e.g. Passport: top drawer. Or a camera and its warranty date.' },
+      { kind: 'todo', done: real(db.todos) || real(db.schedule), en: 'Write your first to-do',
+        ex: 'e.g. Call the bank, or pay the water bill.' },
       { kind: 'renewal', done: real(db.renewals), en: 'Add a bill or expiry date',
         ex: 'e.g. Netflix every month, or your passport expiry.' }
     ];
@@ -860,7 +979,6 @@
       <div class="empty-ico">${window.SHI.art(({ '&#128230;': 'box', '&#128257;': 'loop', '&#128196;': 'doc', '&#128179;': 'card' })[o.ico] || 'other')}</div>
       <b>${esc(tr(o.en))}</b>
       <p>${esc(tr(o.egEn))}</p>
-      <button type="button" class="btn primary" data-action="${o.action}">${esc(tr(o.btnEn))}</button>
     </div>`;
 
 
@@ -1015,7 +1133,6 @@
       ${diff !== null ? `<p class="bd-cmp ${diff > 0 ? 'up' : 'down'}">${esc(tr('Vs same days last month'))}: <b>${diff > 0 ? '+' : ''}${diff}%</b> (${esc(money(s.prevSame))})</p>` : ''}
       <div class="bd-stats">
         <div><span>${esc(tr('Today'))}</span><b>${esc(money(s.todaySum))}</b></div>
-        <div><span>${esc(tr(has && s.left < 0 ? 'Over budget by' : 'Left this month'))}</span><b class="${tone === 'over' ? 'neg' : ''}">${has ? esc(money(Math.abs(s.left))) : '-'}</b></div>
         <div><span>${esc(tr('Can spend per day'))}</span><b>${has ? esc(money(s.perDay)) : '-'}</b></div>
         <div><span>${esc(tr('Daily average'))}</span><b>${esc(money(s.avg))}</b></div>
       </div>
@@ -1278,7 +1395,7 @@
           if (!t.repeat && repeat) { t.doneDates = t.done ? [t.date] : []; t.done = false; }
           else if (t.repeat && !repeat) { t.done = (t.doneDates || []).includes(date); t.doneDates = []; }
           Object.assign(t, { title, date, time, repeat });
-        })) { closeModal(); renderHome(); toast(tr('Saved')); }
+        })) { const back = ui.dayModal; closeModal(); renderHome(); if (back) openDayModal(back); toast(tr('Saved')); }
       });
     });
   }
@@ -1296,7 +1413,9 @@
     { const dg = String(f.time || '').replace(/\D/g, '');
       if (dg.length === 4 || dg.length === 2) { const hh = dg.slice(0, 2), mm = dg.length === 4 ? dg.slice(2) : '00'; if (+hh < 24 && +mm < 60) time = hh + ':' + mm; } }
     if (commit(() => { db.schedule.push({ id: uid(), date, time, title, done: false, repeat, doneDates: [], createdAt: new Date().toISOString() }); })) {
+      if (ui.dayEdit) ui.dayEdit.sch = false;
       renderHome();
+      refreshDayModal();
       toast(tr('Schedule added'));
       try { if (matchMedia('(hover: hover)').matches) { const a = $('#sch-form [name="title"]'); if (a) a.focus(); } } catch (x) { /* ignore */ }
     }
@@ -1345,16 +1464,6 @@
 
 
 
-  // Home tile for the Daily Budget page: same look as the other three tiles, with a small progress bar.
-  function budgetTileHtml() {
-    const s = expenseStats();
-    const has = s.budget > 0;
-    const pct = has ? Math.round(s.spent / s.budget * 100) : 0;
-    const tone = !has ? '' : s.spent > s.budget ? 'over' : pct >= 80 ? 'warn' : '';
-    return `<button type="button" class="add-tile" data-action="tab" data-tab="budget"><span class="ti">${IC('wallet')}</span><b>${esc(tr('Daily Budget'))}</b>
-      <small>${has ? `${esc(money(s.spent))} / ${esc(money(s.budget))}` : esc(tr('Set a monthly budget'))}</small>
-      ${has ? `<span class="tile-meter ${tone}"><i style="width:${Math.min(pct, 100)}%"></i></span>` : ''}</button>`;
-  }
 
   function renderBudget() {
     const el = $('#budget');
@@ -1362,59 +1471,68 @@
   }
   const refreshSpending = () => { renderBudget(); renderHome(); };
 
-  // Home tile for the Notes page.
-  function notesTileHtml() {
-    const n = db.notes.length;
-    return `<button type="button" class="add-tile" data-action="tab" data-tab="notes"><span class="ti">${IC('doc')}</span><b>${esc(tr('Notes'))}</b>
-      <small>${esc(n ? tr('{n} notes', { n }) : tr('Memos, lists, ideas'))}</small></button>`;
-  }
 
-  // Desktop home: a bar of high-frequency actions (the sidebar already lists the pages).
-  function quickBarHtml() {
-    const s = expenseStats();
-    const has = s.budget > 0;
-    const pct = has ? Math.round(s.spent / s.budget * 100) : 0;
-    const tone = !has ? '' : s.spent > s.budget ? 'over' : pct >= 80 ? 'warn' : '';
-    const t = todayISO(), hs = activeHabits().filter(h => habitSched(h, t));
-    const n = hs.filter(h => habitDone(h, t)).length;
-    const hp = hs.length ? Math.round(n / hs.length * 100) : 0;
-    const tile = (action, extra, icon, label, sub, side) => `
-      <button type="button" class="qk-tile" data-action="${action}" ${extra}>
-        <span class="qk-ic">${IC(icon)}</span>
-        <span class="qk-tx"><b>${esc(label)}</b><small>${sub}</small></span>${side || ''}
-      </button>`;
-    return `<div class="home-quick" role="group" aria-label="${esc(tr('Quick actions'))}">
-      ${tile('qa-spend', '', 'wallet', tr('Log spending'), `${esc(tr('Today'))} ${esc(money(s.todaySum))}`,
-        has ? `<span class="tile-meter ${tone}"><i style="width:${Math.min(pct, 100)}%"></i></span>` : '')}
-      ${tile('note-new', '', 'doc', tr('New note'), esc(db.notes.length ? tr('{n} notes', { n: db.notes.length }) : tr('Memos, lists, ideas')))}
-      ${tile('home-add', 'data-kind="asset"', 'box', tr('Add item'), esc(tr('Where it is, warranty')))}
-      ${tile('home-add', 'data-kind="renewal"', 'bell', tr('Add bill / date'), esc(tr('Bills, ID, insurance')))}
-      ${tile('tab', 'data-tab="daily"', 'check', tr('Routine'),
-        esc(hs.length ? tr('{a}/{b} habits', { a: n, b: hs.length }) : tr('Habits, to-do, mood')),
-        hs.length ? `<span class="qk-ring">${window.SHI.ring(hp, '', n + '/' + hs.length, 42)}</span>` : '')}
-      ${tile('tab', 'data-tab="work"', 'briefcase', tr('Daily Work'),
-        esc(db.work.length ? tr('{a}/{b} checked today', { a: db.work.filter(checkedToday).length, b: db.work.length }) : tr('Daily checks, links, logins')))}
-    </div>`;
-  }
 
   function openSpendQuick() {
     openModal('Log spending', expFormHtml('qa-exp', todayISO()), () => focusIn('#qa-exp [name="amount"]'));
   }
+  /* ------------------------------------------------------------------ */
+  /* Home "What needs doing today": bills, schedule, to-dos, habits, checks */
+  /* ------------------------------------------------------------------ */
+  function todayRows(skipDay) {
+    const t = todayISO(), rows = [];
+    db.renewals.filter(r => r.status === 'active' && r.nextDueDate).forEach(r => {
+      const d = daysUntil(r.nextDueDate);
+      if (d <= Number(r.remindDaysBefore || 0)) rows.push({ o: d, html: `
+        <button type="button" class="td-row td-go" data-action="tab" data-tab="renewals">
+          <span class="td-ic">${IC('bell')}</span>
+          <span class="td-main"><b>${esc(r.title)}</b><small>${esc(tr('Bill'))}</small></span>
+          <span class="badge ${urgency(d)}">${esc(daysText(d))}</span>
+        </button>` });
+    });
+    rows.sort((a, b) => a.o - b.o);
+    const out = rows.map(r => r.html);
+    // Unfinished one-off items without a time stay on the list for 30 days, the way the old to-do list did.
+    const from = addDays(t, -30);
+    db.schedule.filter(x => !x.repeat && !x.done && !x.time && x.date < t && x.date >= from).sort((p, q) => p.date.localeCompare(q.date)).forEach(x => out.push(`
+        <div class="td-row">
+          <button type="button" class="sch-check" data-action="sch-toggle" data-id="${esc(x.id)}" data-date="${esc(x.date)}" role="checkbox" aria-checked="false" aria-label="${esc(tr('Mark as done'))}"></button>
+          <span class="td-main"><b>${esc(x.title)}</b><small>${esc(tr('Overdue'))} &middot; ${esc(fmtDate(x.date))}</small></span>
+        </div>`));
+    if (!skipDay) schOn(t).filter(x => !schDone(x, t)).sort((a, b) => (a.time || '99').localeCompare(b.time || '99')).forEach(x => out.push(`
+        <div class="td-row">
+          <button type="button" class="sch-check" data-action="sch-toggle" data-id="${esc(x.id)}" data-date="${t}" role="checkbox" aria-checked="false" aria-label="${esc(tr('Mark as done'))}"></button>
+          <span class="td-main"><b>${esc(x.title)}</b><small>${esc(x.time || tr('Schedule'))}</small></span>
+        </div>`));
+    db.todos.filter(x => !x.done).forEach(x => out.push(`
+        <div class="td-row">
+          <button type="button" class="sch-check" data-action="td-toggle" data-id="${esc(x.id)}" role="checkbox" aria-checked="false" aria-label="${esc(tr('Mark as done'))}"></button>
+          <span class="td-main"><b>${esc(x.title)}</b><small>${esc(tr('To-do'))}</small></span>
+        </div>`));
+    if (!skipDay) activeHabits().filter(h => habitSched(h, t) && !habitDone(h, t)).forEach(h => out.push(`
+        <div class="td-row">
+          <button type="button" class="sch-check" data-action="hb-toggle" data-id="${esc(h.id)}" role="checkbox" aria-checked="false" aria-label="${esc(h.name)}"></button>
+          <span class="td-main"><b>${esc(h.name)}</b><small>${esc(tr('Habit'))}</small></span>
+        </div>`));
+    return out;
+  }
+
+  function todayPanelHtml() {
+    const rows = todayRows(), MAX = 8;
+    return `<section class="panel p-today">
+      <div class="td-head"><h3>${esc(tr('What needs doing today'))}</h3>${rows.length ? `<span class="badge gray">${esc(tr('{n} to go', { n: rows.length }))}</span>` : ''}</div>
+      ${rows.length ? `<div class="td-list">${rows.slice(0, MAX).join('')}</div>
+        ${rows.length > MAX ? `<button type="button" class="link-btn" data-action="day-open" data-date="${t}">${esc(tr('And {n} more', { n: rows.length - MAX }))}</button>` : ''}`
+        : `<p class="panel-note">${esc(tr('All clear. Nothing needs you right now.'))}</p>`}
+    </section>`;
+  }
+
   function renderHome() {
     if (!ui.calMonth) ui.calMonth = todayISO().slice(0, 8) + '01';
     if (!ui.calInit) { ui.calInit = true; ui.calSel = todayISO(); }
     $('#home').innerHTML = `
       ${sampleBarHtml()}
       ${startCardHtml()}
-      ${quickBarHtml()}
-      <div class="home-add">
-          ${dailyTileHtml()}
-          ${workTileHtml()}
-          ${notesTileHtml()}
-          ${budgetTileHtml()}
-          <button type="button" class="add-tile" data-action="home-add" data-kind="asset"><span class="ti">${IC('box')}</span><b>${esc(tr('Item'))}</b><small>${esc(tr('Where it is, warranty'))}</small></button>
-          <button type="button" class="add-tile" data-action="home-add" data-kind="renewal"><span class="ti">${IC('bell')}</span><b>${esc(tr('Bill / date'))}</b><small>${esc(tr('Bills, ID, insurance'))}</small></button>
-        </div>
       <div class="home-cols">
         <div class="home-col">
           <section class="panel p-tl"><h3>${esc(tr('Next 12 months'))}</h3>${timelineHtml()}</section>
@@ -1423,7 +1541,8 @@
         <div class="home-col">
           <section class="panel p-cal"><h3>${esc(tr('Calendar'))}</h3>${calendarHtml()}</section>
         </div>
-      </div>`;
+      </div>
+      <div id="daily">${activeHabits().length ? `<div class="daily-grid daily-low">${habitReportHtml()}</div>` : ''}</div>`;
   }
 
   /* ------------------------------------------------------------------ */
@@ -1495,9 +1614,7 @@
   };
 
   function renderAssets() {
-    const value = db.assets.reduce((s, a) => s + (Number(a.price) || 0), 0);
-    $('#asset-stats').innerHTML = db.assets.length
-      ? `<p class="mini">${esc(tr('{n} items · Total value {amount}', { n: db.assets.length, amount: money(value) }))}</p>` : '';
+    $('#asset-stats').innerHTML = ''; // the header already shows the count and total value
     $('#asset-filters').innerHTML = !db.assets.length ? '' : ASSET_FILTERS.map(([k, l]) => {
       const n = db.assets.filter(a => assetFlag(a, k)).length;
       return `<button class="chip-btn ${ui.assetFilter === k ? 'active' : ''}" data-action="asset-filter" data-f="${k}">${esc(tr(l))}${k !== 'all' ? ` (${n})` : ''}</button>`;
@@ -1520,10 +1637,9 @@
       : (db.assets.length
         ? `<div class="empty">${bi('No items match your search.')}</div>`
         : emptyCard({
-          ico: '&#128230;', action: 'fab',
+          ico: '&#128230;',
           en: 'No items yet',
-          egEn: 'Example: "Passport", kept in the top drawer, or a camera with its warranty date.',
-          btnEn: '+ Add Item'
+          egEn: 'Example: "Passport", kept in the top drawer, or a camera with its warranty date.'
         }));
   }
 
@@ -2054,25 +2170,8 @@
     $('#show-archived').checked = ui.showArchived;
 
     const isSub = ui.renewTab === 'subscription';
-    if (ui.renewTab === 'paylater') {
-      const pls = db.renewals.filter(r => r.type === 'paylater' && r.status === 'active');
-      const perMonth = pls.reduce((t, r) => t + (Number(r.amount) || 0), 0);
-      const toPay = pls.reduce((t, r) => t + (Number(r.amount) || 0) * (Number(r.left) || 0), 0);
-      $('#renew-stats').innerHTML = `
-        <div class="stat"><div class="l">${esc(tr('Monthly instalments'))}</div><div class="v">${esc(money(perMonth))}</div></div>
-        <div class="stat"><div class="l">${esc(tr('Still to pay'))}</div><div class="v">${esc(money(toPay))}</div></div>`;
-    } else if (isSub) {
-      const monthly = activeSubscriptions().reduce((s, r) => s + monthlyEquivalent(r), 0);
-      $('#renew-stats').innerHTML = `
-        <div class="stat"><div class="l">${esc(tr('Monthly total'))}</div><div class="v">${esc(money(monthly))}</div></div>
-        <div class="stat"><div class="l">${esc(tr('Yearly estimate'))}</div><div class="v">${esc(money(monthly * 12))}</div></div>`;
-    } else {
-      const docs = db.renewals.filter(r => r.type === 'document' && r.status === 'active');
-      const soon = docs.filter(r => r.nextDueDate && daysUntil(r.nextDueDate) <= 30).length;
-      $('#renew-stats').innerHTML = `
-        <div class="stat"><div class="l">${esc(tr('Active items'))}</div><div class="v">${docs.length}</div></div>
-        <div class="stat"><div class="l">${esc(tr('Due within 30 days'))}</div><div class="v">${soon}</div></div>`;
-    }
+    $('#renew-stats').innerHTML = ''; // these numbers are shown in the header cards
+    try { if (ui.tab === 'renewals') renderHeader(); } catch (e) { /* ignore */ }
 
     let sa = $('#sub-ana');
     if (!sa) { sa = document.createElement('div'); sa.id = 'sub-ana'; $('#renew-stats').after(sa); }
@@ -2090,10 +2189,9 @@
       : (db.renewals.some(r => r.type === ui.renewTab)
         ? `<div class="empty">${bi('Nothing active here. Tick "Show archived" to see old ones.')}</div>`
         : emptyCard({
-          ico: ui.renewTab === 'paylater' ? '&#128179;' : isSub ? '&#128257;' : '&#128196;', action: 'fab',
+          ico: ui.renewTab === 'paylater' ? '&#128179;' : isSub ? '&#128257;' : '&#128196;',
           en: ui.renewTab === 'paylater' ? 'No PayLater yet' : isSub ? 'No subscriptions yet' : 'No IDs or renewals yet',
-          egEn: ui.renewTab === 'paylater' ? 'Example: SPayLater, RM120 a month, 4 instalments left. Pick a quick-add button above, or add your own.' : isSub ? 'Example: Netflix, RM55 every month. Pick a quick-add button above, or add your own.' : 'Example: Passport, expires next year. Pick a quick-add button above, or add your own.',
-          btnEn: '+ Add Renewal'
+          egEn: ui.renewTab === 'paylater' ? 'Example: SPayLater, RM120 a month, 4 instalments left. Pick a quick-add button above, or add your own.' : isSub ? 'Example: Netflix, RM55 every month. Pick a quick-add button above, or add your own.' : 'Example: Passport, expires next year. Pick a quick-add button above, or add your own.'
         }));
   }
 
@@ -2384,6 +2482,8 @@
   const settingsSection = () => `
     <div class="backup settings">
       <h4>${esc(tr('Settings'))}</h4>
+      <p class="card-sub">${esc(tr('Pages you do not need can be turned off. Your data is kept.'))}</p>
+      ${FEATURES.map(f => `<div class="set-row"><span>${esc(tr(f[2]))}</span><div class="seg"><button type="button" class="${featOn(f[0]) ? 'on' : ''}" data-action="set-feat" data-feat="${f[0]}" data-on="1">${esc(tr('On'))}</button><button type="button" class="${featOn(f[0]) ? '' : 'on'}" data-action="set-feat" data-feat="${f[0]}" data-on="0">${esc(tr('Off'))}</button></div></div>`).join('')}
       <div class="set-row"><span>${esc(tr('Language'))}</span>
         <div class="seg">
           <button type="button" class="${window.L.lang === 'en' ? 'on' : ''}" data-action="set-lang" data-lang="en">English</button>
@@ -2480,14 +2580,15 @@
   const last7 = () => Array.from({ length: 7 }, (_, i) => addDays(todayISO(), i - 6));
   const activeHabits = () => db.habits.filter(h => !h.archived);
 
-  const habitRow = h => {
-    const done = habitDone(h, todayISO());
+  const habitRow = (h, iso, lite) => {
+    iso = iso || todayISO();
+    const done = habitDone(h, iso);
     const n = habitStreak(h);
-    return `<div class="hb-row ${done ? 'done' : ''} ${habitSched(h, todayISO()) ? '' : 'rest'}">
-      <button type="button" class="sch-check" data-action="hb-toggle" data-id="${esc(h.id)}" role="checkbox" aria-checked="${done ? 'true' : 'false'}" aria-label="${esc(h.name)}">${done ? '&#10003;' : ''}</button>
-      <div class="hb-main"><span class="hb-name">${esc(h.name)}</span><span class="hb-days" role="group" aria-label="${esc(tr('Repeat'))}">${[1, 2, 3, 4, 5, 6, 0].map(i => `<button type="button" class="hb-day ${!(h.days && h.days.length) || h.days.includes(i) ? 'on' : ''}" data-action="hb-day" data-id="${esc(h.id)}" data-d="${i}">${esc(wdNarrow(i))}</button>`).join('')}</span><span class="hb-dots">${last7().map(d => `<i class="${habitDone(h, d) ? 'on' : habitSched(h, d) ? '' : 'off'}"></i>`).join('')}</span></div>
+    return `<div class="hb-row ${done ? 'done' : ''} ${habitSched(h, iso) ? '' : 'rest'}">
+      <button type="button" class="sch-check" data-action="hb-toggle" data-id="${esc(h.id)}" data-date="${esc(iso)}" role="checkbox" aria-checked="${done ? 'true' : 'false'}" aria-label="${esc(h.name)}">${done ? '&#10003;' : ''}</button>
+      <div class="hb-main"><span class="hb-name">${esc(h.name)}</span>${lite ? '' : `<span class="hb-days" role="group" aria-label="${esc(tr('Repeat'))}">${[1, 2, 3, 4, 5, 6, 0].map(i => `<button type="button" class="hb-day ${!(h.days && h.days.length) || h.days.includes(i) ? 'on' : ''}" data-action="hb-day" data-id="${esc(h.id)}" data-d="${i}">${esc(wdNarrow(i))}</button>`).join('')}</span><span class="hb-dots">${last7().map(d => `<i class="${habitDone(h, d) ? 'on' : habitSched(h, d) ? '' : 'off'}"></i>`).join('')}</span>`}</div>
       <span class="hb-streak">${n ? IC('flame') + ' ' + esc(tr('{n} day streak', { n })) : ''}</span>
-      <button type="button" class="icon-btn" data-action="hb-del" data-id="${esc(h.id)}" aria-label="${esc(tr('Delete'))}">&times;</button>
+      ${lite ? '' : `<button type="button" class="icon-btn" data-action="hb-del" data-id="${esc(h.id)}" aria-label="${esc(tr('Delete'))}">&times;</button>`}
     </div>`;
   };
 
@@ -2521,18 +2622,6 @@
   // Date the diary form is writing for: any past day or today, never the future.
   const jDateOf = v => (/^\d{4}-\d{2}-\d{2}$/.test(v || '') && v <= todayISO() ? v : todayISO());
 
-  function dailyTileHtml() {
-    const t = todayISO(), hs = activeHabits().filter(h => habitSched(h, t));
-    const n = hs.filter(h => habitDone(h, t)).length;
-    const open = db.todos.filter(x => !x.done).length;
-    const parts = [];
-    if (hs.length) parts.push(tr('{a}/{b} habits', { a: n, b: hs.length }));
-    if (open) parts.push(tr('{n} to-do', { n: open }));
-    const pct = hs.length ? Math.round(n / hs.length * 100) : 0;
-    return `<button type="button" class="add-tile" data-action="tab" data-tab="daily"><span class="ti">${IC('check')}</span><b>${esc(tr('Routine'))}</b>
-      <small>${esc(parts.length ? parts.join(' \u00b7 ') : tr('Habits, to-do, mood'))}</small>
-      ${hs.length ? `<span class="tile-meter"><i style="width:${pct}%"></i></span>` : ''}</button>`;
-  }
 
   function habitReportHtml() {
     const hs = activeHabits();
@@ -2558,74 +2647,8 @@
       <div class="wr-top">${window.SHI.ring(pct, pct < 40 ? 'warn' : '', pct + '%', 72)}<p>${esc(tr('{a} of {b} habit check-ins done this week', { a: td, b: ts }))}${lp != null ? `<br><small>${esc(tr('Last week: {n}%', { n: lp }))}</small>` : ''}</p></div>
       ${rows}<h5 class="cal-sub">${esc(tr('Each day this week'))}</h5><div class="wk-strip">${strip}</div><p class="panel-note">${esc(tr('Tick = all habits done that day. Half = some done.'))}</p></div></section>`;
   }
-  function renderDaily() {
-    const el = $('#daily');
-    if (!el) return;
-    const t = todayISO();
-    const hs = activeHabits();
-    const hsT = hs.filter(h => habitSched(h, t));
-    const doneN = hsT.filter(h => habitDone(h, t)).length;
-    const open = db.todos.filter(x => !x.done);
-    const done = db.todos.filter(x => x.done).sort((a, b) => (b.doneAt || '').localeCompare(a.doneAt || ''));
-    if (ui.jEdit && !db.journal.some(j => j.id === ui.jEdit)) ui.jEdit = null;
-    const jd = ui.jDate && ui.jDate <= t ? ui.jDate : t;
-    const cur = journalOn(jd);
-    const sel = cur ? Number(cur.mood) || 0 : 0;
-    const ideas = HABIT_IDEAS.filter(n => !db.habits.some(h => h.name === tr(n)));
-    const recent = db.journal.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10);
-
-    el.innerHTML = `<div class="daily-grid">
-      <section class="panel">
-        <h3>${esc(tr('Habits'))}${hs.length ? `<small>${doneN}/${hsT.length}</small>` : ''}</h3>
-        <div class="pn-body">
-        ${hs.length ? hs.map(habitRow).join('') : `<p class="panel-note">${esc(tr('No habits yet. Pick one below or add your own.'))}</p>`}
-        ${ideas.length ? `<div class="idea-row">${ideas.map(n => `<button type="button" class="chip-btn" data-action="hb-quick" data-name="${esc(n)}">+ ${esc(tr(n))}</button>`).join('')}</div>` : ''}
-        </div>
-        <form id="habit-form" class="mini-form" autocomplete="off">
-          <input name="name" type="text" maxlength="60" placeholder="${esc(tr('Add a habit (e.g. Drink water)'))}" aria-label="${esc(tr('Habits'))}" required>
-          <div class="wk-pick" role="group" aria-label="${esc(tr('Repeat'))}"><span class="wk-lab">${esc(tr('New habit repeats on'))}</span>${[1, 2, 3, 4, 5, 6, 0].map(i => `<label><input type="checkbox" name="wd" value="${i}" checked><span>${esc(wdNarrow(i))}</span></label>`).join('')}</div>
-          <button type="submit" class="btn small">${esc(tr('Add'))}</button>
-        </form>
-      </section>
-      <section class="panel">
-        <h3>${esc(tr('To-do'))}${open.length ? `<small>${esc(tr('{n} open', { n: open.length }))}</small>` : ''}</h3>
-        <div class="pn-body">
-        ${db.todos.length ? open.concat(done).map(todoRow).join('') : `<p class="panel-note">${esc(tr('Nothing to do. Enjoy your day.'))}</p>`}
-        ${done.length ? `<button type="button" class="link-btn td-clear" data-action="td-clear">${esc(tr('Clear done'))} (${done.length})</button>` : ''}
-        </div>
-        <form id="todo-form" class="mini-form" autocomplete="off">
-          <input name="name" type="text" maxlength="80" placeholder="${esc(tr('Add a to-do (e.g. Call the bank)'))}" aria-label="${esc(tr('To-do'))}" required>
-          <button type="submit" class="btn small">${esc(tr('Add'))}</button>
-        </form>
-      </section>
-      <section class="panel">
-        <h3>${esc(tr('Mood & diary'))}</h3>
-        <form id="journal-form" class="j-form" autocomplete="off">
-          <div class="j-date-row"><input name="date" type="date" value="${jd}" max="${t}" aria-label="${esc(tr('Date'))}" required>${jd !== t || ui.jEdit ? `<button type="button" class="link-btn" data-action="j-today">${esc(tr(ui.jEdit ? 'Cancel' : 'Today'))}</button>` : ''}</div>
-          ${ui.jEdit ? `<p class="panel-note">${esc(tr('Change the date to move this entry.'))}</p>` : ''}
-          <div class="mood-row">${MOODS.map(m => `<button type="button" class="mood-btn ${sel === m.v ? 'on' : ''}" data-action="mood-pick" data-v="${m.v}" title="${esc(tr(m.en))}" aria-label="${esc(tr(m.en))}">${m.i}</button>`).join('')}</div>
-          <input type="hidden" name="mood" value="${sel || ''}">
-          <input name="text" type="text" maxlength="120" placeholder="${esc(tr(jd === t ? 'One line about today...' : 'One line about this day...'))}" value="${esc(cur ? cur.text : '')}" aria-label="${esc(tr('Mood & diary'))}">
-          <button type="submit" class="btn small">${esc(tr('Save'))}</button>
-        </form>
-      </section>
-    </div>
-    <div class="daily-grid daily-low">
-      ${habitReportHtml()}
-      <section class="panel">
-        <h3>${esc(tr('Diary'))}</h3>
-        <div class="pn-body">
-        ${recent.length ? recent.map(j => `<div class="j-row ${ui.jEdit === j.id ? 'sel' : ''}">
-          <span class="j-date" data-action="j-edit" data-id="${esc(j.id)}">${esc(parseISO(j.date).toLocaleDateString(LOCALE(), { day: 'numeric', month: 'short' }))}</span>
-          <span class="j-mood" data-action="j-edit" data-id="${esc(j.id)}">${moodOf(j.mood) ? moodOf(j.mood).i : ''}</span>
-          <span class="j-text" data-action="j-edit" data-id="${esc(j.id)}">${esc(j.text || '')}</span>
-          <button type="button" class="icon-btn" data-action="j-edit" data-id="${esc(j.id)}" aria-label="${esc(tr('Edit'))}">${IC('edit')}</button>
-          <button type="button" class="icon-btn" data-action="j-del" data-id="${esc(j.id)}" aria-label="${esc(tr('Delete'))}">&times;</button>
-        </div>`).join('') : `<p class="panel-note">${esc(tr('Nothing written yet.'))}</p>`}
-        </div>
-      </section>
-    </div>`;
-  }
+  // Habits, to-do and mood now live in the day sheet; callers that used to redraw the Routine page just refresh it.
+  function renderDaily() { refreshDayModal(); }
 
   const focusIn = sel => { try { if (matchMedia('(hover: hover)').matches) { const a = $(sel); if (a) a.focus(); } } catch (x) { /* ignore */ } };
 
@@ -2658,7 +2681,7 @@
         const cur = db.journal.find(j => j.date === date);
         if (cur) { cur.mood = mood; cur.text = text; }
         else db.journal.push({ id: 'j' + date, date, mood, text, createdAt: new Date().toISOString() });
-      })) { renderDaily(); renderHome(); toast(tr('Saved')); }
+      })) { if (ui.dayEdit) ui.dayEdit.diary = false; renderDaily(); renderHome(); toast(tr('Saved')); }
     }
   });
 
@@ -2698,7 +2721,7 @@
     const d = (n.updatedAt || n.createdAt || '').slice(0, 10);
     const when = /^\d{4}-\d{2}-\d{2}$/.test(d) ? parseISO(d).toLocaleDateString(LOCALE(), { day: 'numeric', month: 'short' }) : '';
     return `<div class="note-card nc-${n.color || 'n'}" data-action="note-open" data-id="${esc(n.id)}" tabindex="0" role="button">
-      <button type="button" class="note-pin ${n.pinned ? 'on' : ''}" data-action="note-pin" data-id="${esc(n.id)}" aria-label="${esc(tr(n.pinned ? 'Unpin' : 'Pin'))}" title="${esc(tr(n.pinned ? 'Unpin' : 'Pin'))}">${IC('pin')}</button>
+      <button type="button" class="note-pin ${n.pinned ? 'on' : ''}" data-action="note-pin" data-id="${esc(n.id)}" aria-label="${esc(tr(n.pinned ? 'Unpin' : 'Pin'))}" title="${esc(tr(n.pinned ? 'Unpin' : 'Pin'))}">${IC('tack')}</button>
       <h4>${esc(n.title || tr('Untitled'))}</h4>
       ${n.body ? `<p>${esc(n.body)}</p>` : ''}
       <small>${esc(when)}</small></div>`;
@@ -2714,9 +2737,9 @@
   function noteStartersHtml() {
     const have = new Set(db.notes.map(n => (n.title || '').trim()));
     const ghost = (k, ic, label) => `<button type="button" class="note-ghost" data-action="note-tpl" data-k="${k}"><span class="ng-ic">${IC(ic)}</span><b>${esc(label)}</b></button>`;
-    return `<h5 class="note-hint">${esc(tr('Start with a template'))}</h5>`
+    return `<h5 class="note-hint">${esc(tr('Start with a template'))}</h5><div class="note-ghosts">`
       + ghost('', 'plus', tr('Blank note'))
-      + NOTE_STARTERS.filter(s => !have.has(tr(s.title))).map(s => ghost(s.k, s.ic, tr(s.title))).join('');
+      + NOTE_STARTERS.filter(s => !have.has(tr(s.title))).map(s => ghost(s.k, s.ic, tr(s.title))).join('') + '</div>';
   }
 
   function renderNoteList() {
@@ -2873,6 +2896,22 @@
   }
   const linkText = l => (l ? (l.label ? l.label + ' ' : '') + l.url : '');
   const hostOf = u => { try { const x = new URL(u); if (x.protocol === 'file:') return decodeURIComponent(x.pathname.split('/').filter(Boolean).pop() || 'file'); return x.hostname.replace(/^www\./, ''); } catch (e) { return u; } };
+  // Link button: icon tile + short name. A leading emoji in the name becomes the icon; otherwise the first letter on a colour taken from the site.
+  const EMOJI_RE = /^\s*(\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*)\s*/u;
+  function linkDisp(l) {
+    let label = String(l.label || '').trim(), icon = '';
+    const m = label.match(EMOJI_RE);
+    if (m) { icon = m[1]; label = label.slice(m[0].length).trim(); }
+    const host = hostOf(l.url);
+    const isFile = /^file:/i.test(l.url);
+    const parts = host.split('.');
+    const short = isFile ? host.replace(/\.[^.]+$/, '') : (parts.length > 2 ? parts[0] : parts[0]);
+    const name = label || short || host;
+    if (!icon) icon = (name.trim().charAt(0) || '?').toUpperCase();
+    let h = 0; const key = isFile ? 'file' : parts.slice(-2).join('.');
+    for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) % 360;
+    return { icon, name, hue: h };
+  }
 
   function workCardHtml(w) {
     const today = checksOn(w, todayISO()), n = today.length, st = workStreak(w);
@@ -2887,7 +2926,7 @@
         <div class="dw-main"><h4>${esc(w.title)}</h4>${w.note ? `<p>${esc(w.note)}</p>` : ''}</div>
         <div class="dw-ibs">${ib('work-star', 'star', w.star ? 'Unstar' : 'Star', w.star)}${ib('work-edit', 'edit', 'Edit')}${ib('work-del', 'trash', 'Delete')}</div>
       </div>
-      <div class="dw-links">${links.map(l => `<a class="dw-link" data-wid="${esc(w.id)}" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer" title="${esc(l.url)}">${esc(l.label || hostOf(l.url))} &#8599;</a>`).join('')}</div>
+      <div class="dw-links">${links.map(l => { const d = linkDisp(l); return `<a class="dw-link" data-wid="${esc(w.id)}" href="${esc(l.url)}" target="_blank" rel="noopener noreferrer" title="${esc((l.label ? l.label + ' - ' : '') + l.url)}"><span class="dw-li" style="--h:${d.hue}">${esc(d.icon)}</span><span class="dw-ln">${esc(d.name)}</span></a>`; }).join('')}</div>
       <div class="dw-bot">
       <div class="dw-count">
         <div class="dw-n"><b>${esc(tr('\u00d7{n} today', { n }))}</b>${st >= 2 ? `<span class="dw-streak" title="${esc(tr('{n} day streak', { n: st }))}">${IC('flame')}${st}</span>` : ''}</div>
@@ -2908,18 +2947,13 @@
     const n = list.filter(checkedToday).length;
     el.innerHTML = `<section class="panel p-work">
       <div class="dw-head"><h3>${esc(tr('Daily Work'))}</h3>${list.length ? `<span class="dw-prog">${esc(tr('{a}/{b} checked today', { a: n, b: list.length }))}</span>` : ''}</div>
-      <p class="panel-note">${esc(tr('Things to check often. Press Check now each time; it keeps the count and the time.'))}</p>
+      <p class="panel-note">${esc(tr('Things to check often. Open a link and it counts as one check, with the time.'))}</p>
       <div class="dw-bar"><button type="button" class="btn primary" data-action="work-new">+ ${esc(tr('New task'))}</button></div>
       ${list.length ? `<div class="dw-list">${list.map(workCardHtml).join('')}</div>`
         : `<div class="empty rich">${window.SHI.art('briefcase')}<p>${esc(tr('No daily work yet. Add what you check every day, with its links and login.'))}</p></div>`}
     </section>`;
   }
 
-  function workTileHtml() {
-    const n = db.work.length, d = db.work.filter(checkedToday).length;
-    return `<button type="button" class="add-tile" data-action="tab" data-tab="work"><span class="ti">${IC('briefcase')}</span><b>${esc(tr('Daily Work'))}</b>
-      <small>${esc(n ? tr('{a}/{b} checked today', { a: d, b: n }) : tr('Daily checks, links, logins'))}</small></button>`;
-  }
 
   function copyText(text) {
     const ok = () => toast(tr('Copied'));
@@ -2997,6 +3031,7 @@
 
   function renderAll() {
     lastRenderedDay = todayISO();
+    applyFeatures();
     applyRecurring();
     renderHeader();
     renderHome();
@@ -3010,8 +3045,19 @@
     if ($('#exp-modal')) renderExpModal();
   }
 
-  const TAB_ORDER = ['home', 'daily', 'work', 'notes', 'budget', 'assets', 'renewals'];
+  const TAB_ORDER = ['home', 'daily', 'work', 'notes', 'renewals', 'assets', 'budget'];
+  const TODAY_GROUP = ['home', 'work'];
+  function updateFabLabel() {
+    const rl = { subscription: 'Add Subscription', document: 'Add Renewal', paylater: 'Add PayLater' };
+    const fabLabel = { home: 'Add', budget: 'Add', assets: 'Add Item', renewals: rl[ui.renewTab] || 'Add Renewal', daily: 'Add', work: 'Add', notes: 'Add' };
+    const el = $('#fab .fab-text');
+    if (el) el.textContent = tr(fabLabel[ui.tab] || 'Add');
+  }
+
   function switchTab(tab) {
+    // Routine used to be its own tab; it is now the lower part of Today, so old links land there.
+    if (tab === 'daily') tab = 'home';
+    if (['assets', 'budget', 'work'].includes(tab) && !featOn(tab)) { setFeat(tab, true); applyFeatures(); }
     if (tab !== ui.tab) {
       document.body.dataset.dir = TAB_ORDER.indexOf(tab) < TAB_ORDER.indexOf(ui.tab) ? 'back' : 'fwd';
       document.body.classList.add('tab-anim');
@@ -3019,13 +3065,15 @@
       switchTab.t = setTimeout(() => document.body.classList.remove('tab-anim'), 700);
     }
     ui.tab = tab;
+    try { renderHeader(); } catch (e) { /* ignore */ }
     document.body.dataset.tab = tab;
     $$('.view').forEach(v => v.classList.toggle('active', v.id === `view-${tab}`));
-    $$('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    $$('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === (TODAY_GROUP.includes(tab) ? 'home' : tab)));
+    const tt = $('#today-tabs');
+    if (tt) { tt.style.display = TODAY_GROUP.includes(tab) ? '' : 'none'; $$('.subtab', tt).forEach(b => b.classList.toggle('active', b.dataset.tab === tab)); }
     const moreBtn = $('.nav-more');
-    if (moreBtn) moreBtn.classList.toggle('active', ['daily', 'work', 'notes', 'budget'].includes(tab));
-    const fabLabel = { home: 'Add', budget: 'Add', assets: 'Add Item', renewals: 'Add Renewal', daily: 'Add', work: 'Add', notes: 'Add' };
-    $('#fab .fab-text').textContent = tr(fabLabel[tab]);
+    if (moreBtn) moreBtn.classList.toggle('active', ['assets', 'budget'].includes(tab));
+    updateFabLabel();
     // Home and Daily Budget already have their own add buttons on the page.
     $('.fab-wrap').style.display = (tab === 'home' || tab === 'budget' || tab === 'daily' || tab === 'work' || tab === 'notes') ? 'none' : '';
     window.scrollTo({ top: 0 });
@@ -3035,15 +3083,20 @@
   /* Event handling (delegated)                                          */
   /* ------------------------------------------------------------------ */
   const handlers = {
-    tab: el => switchTab(el.dataset.tab),
+    tab: el => { closeModal(); switchTab(el.dataset.tab); },
     more: () => {
-      const items = [
-        ['daily', 'check', 'Routine', 'Habits, to-do, mood'],
-        ['work', 'briefcase', 'Daily Work', 'Daily checks, links, logins'],
-        ['notes', 'doc', 'Notes', 'Memos, lists, ideas'],
-        ['budget', 'wallet', 'Daily Budget', 'Set a monthly budget']
-      ];
-      openModal('More', `<div class="tiles">${items.map(x => `<button type="button" class="tile ${ui.tab === x[0] ? 'sel' : ''}" data-action="more-go" data-tab="${x[0]}"><span class="ti">${IC(x[1])}</span><span class="tl">${esc(tr(x[2]))}</span><small>${esc(tr(x[3]))}</small></button>`).join('')}</div>`);
+      const items = FEATURES.filter(f => f[0] !== 'work' && featOn(f[0])).map(f => [f[0], f[1], f[2], f[3], 'more-go']);
+      items.push(['', 'user', 'Settings', 'Features, language, theme, backup', 'more-settings']);
+      openModal('More', `<div class="tiles">${items.map(x => `<button type="button" class="tile ${ui.tab === x[0] ? 'sel' : ''}" data-action="${x[4]}" data-tab="${x[0]}"><span class="ti">${IC(x[1])}</span><span class="tl">${esc(tr(x[2]))}</span><small>${esc(tr(x[3]))}</small></button>`).join('')}</div>`);
+    },
+    'more-settings': () => { closeModal(); accTabKey = 'set'; openAccount(); },
+    'set-feat': el => {
+      const k = el.dataset.feat;
+      setFeat(k, el.dataset.on === '1');
+      applyFeatures();
+      if (!featOn(k) && ui.tab === k) switchTab('home');
+      renderHome();
+      accTabKey = 'set'; openAccount();
     },
     'more-go': el => { closeModal(); switchTab(el.dataset.tab); },
     'work-new': () => openWork(),
@@ -3098,6 +3151,7 @@
 
     'home-add': el => {
       const k = el.dataset.kind;
+      if (k === 'todo') { openDayModal(todayISO(), { sch: true }); const f = $('#sch-form [name="title"]'); if (f) f.focus(); return; }
       if (k === 'asset') openAssetForm();
       else openRenewForm();
     },
@@ -3107,13 +3161,24 @@
       if (it && commit(() => {
         if (it.repeat) { const set = new Set(it.doneDates || []); if (set.has(iso)) set.delete(iso); else set.add(iso); it.doneDates = [...set].sort().slice(-800); }
         else it.done = !it.done;
-      })) renderHome();
+      })) { renderHome(); refreshDayModal(); }
+    },
+    'day-open': el => openDayModal(el.dataset.date),
+    'day-edit': el => {
+      const k = el.dataset.k;
+      ui.dayEdit = ui.dayEdit || {};
+      ui.dayEdit[k] = !el.dataset.off;
+      refreshDayModal();
+      if (el.dataset.off) return;
+      const f = $({ sch: '#sch-form [name="title"]', hab: '#habit-form [name="name"]', diary: '#journal-form [name="text"]' }[k]);
+      if (f) { try { f.focus(); } catch (x) { /* ignore */ } }
     },
     'sch-edit': el => openSchEdit(el.dataset.id),
-    'sch-del': el => { if (removeRecord('schedule', el.dataset.id, 'Schedule item')) renderHome(); },
+    'sch-del': el => { if (removeRecord('schedule', el.dataset.id, 'Schedule item')) { renderHome(); refreshDayModal(); } },
     'hb-toggle': el => {
       const h = db.habits.find(x => x.id === el.dataset.id);
-      const t = todayISO();
+      const t = /^\d{4}-\d{2}-\d{2}$/.test(el.dataset.date || '') ? el.dataset.date : todayISO();
+      if (t > todayISO()) { toast(tr('Not yet')); return; }
       if (h) buzz(habitDone(h, t) ? 'tap' : 'success');
       if (h && commit(() => { const set = new Set(h.dates || []); if (set.has(t)) set.delete(t); else set.add(t); h.dates = [...set].sort().slice(-800); })) { renderDaily(); renderHome(); }
     },
@@ -3208,7 +3273,7 @@
       const c = $('#cal');
       if (c) c.scrollIntoView({ behavior: 'smooth', block: 'start' });
     },
-    'cal-day': el => { ui.calSel = ui.calSel === el.dataset.date ? null : el.dataset.date; renderHome(); },
+    'cal-day': el => openDayModal(el.dataset.date),
     'quick-add': el => { const p = QUICK_ADD[Number(el.dataset.i)]; if (p) openQuickAdd(p); },
     'asset-filter': el => { ui.assetFilter = el.dataset.f; renderAssets(); },
     'asset-cat': el => { ui.assetCat = el.dataset.cat; renderAssets(); },
@@ -3244,7 +3309,7 @@
       }
     },
 
-    rtab: el => { ui.renewTab = el.dataset.rtab; renderRenewals(); },
+    rtab: el => { ui.renewTab = el.dataset.rtab; renderRenewals(); updateFabLabel(); },
     'renew-history': el => {
       const r = db.renewals.find(x => x.id === el.dataset.id);
       if (!r) return;
@@ -3412,15 +3477,27 @@
   const introSlides = () => [
     {
       title: 'Welcome to {app}',
-      text: 'Six jobs, six pages. Pick the one that matches what you want to do.',
+      text: 'Write down what you need to do. Stowhive keeps it in front of you.',
       art: hiveSvg('ihex') + `
         <div class="pill-row" style="--i:1">
           <span class="pill">${IC('check')} ${esc(tr('Routine'))}</span>
           <span class="pill">${IC('briefcase')} ${esc(tr('Daily Work'))}</span>
           <span class="pill">${IC('doc')} ${esc(tr('Notes'))}</span>
-          <span class="pill">${IC('wallet')} ${esc(tr('Daily Budget'))}</span>
-          <span class="pill">${IC('box')} ${esc(tr('My Items'))}</span>
           <span class="pill">${IC('bell')} ${esc(tr('Bills & Dates'))}</span>
+        </div>`
+    },
+    {
+      title: 'Start from Home',
+      text: 'Home gathers everything that needs you today: bills coming due, your to-dos and habits. Tick them off as you go.',
+      art: `
+        <div class="mock-card" style="--i:0">
+          <div class="mc-row"><div><b>Netflix</b><div class="mc-sub">${esc(tr('Bill'))}</div></div><span class="badge red">${esc(tr('{n}d left', { n: 2 }))}</span></div>
+        </div>
+        <div class="mock-card" style="--i:1">
+          <div class="mc-row"><div><b>${esc(tr('Call the bank'))}</b><div class="mc-sub">${esc(tr('To-do'))}</div></div><span class="badge gray">${esc(tr('{n} to go', { n: 3 }))}</span></div>
+        </div>
+        <div class="mock-card" style="--i:2">
+          <div class="mc-row"><div><b>${esc(tr('Drink water'))}</b><div class="mc-sub">${esc(tr('Habit'))}</div></div></div>
         </div>`
     },
     {
@@ -3437,15 +3514,14 @@
     },
     {
       title: 'Check it every day',
-      text: 'Use Daily Work for things you check often, like a dashboard or an inbox. Press Check now to log the count and time, and keep the link and login with it.',
+      text: 'Use Daily Work for things you check often, like a dashboard or an inbox. Opening a link counts as one check and keeps the time. The login is saved on the same card.',
       art: `
         <div class="mock-card" style="--i:0">
           <div class="mc-row"><div><b>${esc(tr('Order dashboard'))}</b><div class="mc-sub">${esc(tr('Last checked {t}', { t: '09:30' }))}</div></div><span class="badge green">${esc(tr('\u00d7{n} today', { n: 3 }))}</span></div>
         </div>
         <div class="mock-card" style="--i:1">
           <div class="mc-row"><div><b>${esc(tr('Customer inbox'))}</b><div class="mc-sub">${esc(tr('Not checked yet'))}</div></div><span class="badge gray">${esc(tr('\u00d7{n} today', { n: 0 }))}</span></div>
-        </div>
-        <div class="pill-row" style="--i:2"><span class="pill">${esc(tr('Check now'))}</span></div>`
+        </div>`
     },
     {
       title: 'Write it down',
@@ -3459,42 +3535,8 @@
         </div>`
     },
     {
-      title: 'Where did the money go?',
-      text: 'Use Daily Budget. Set a monthly budget, log what you spend each day, and see how much you can still spend per day.',
-      art: `
-        <div class="mock-card" style="--i:0">
-          <div class="mc-row"><div><b>${esc(tr('Left this month'))}</b><div class="mc-sub">${esc(tr('RM 1,240 of RM 2,000'))}</div></div><span class="badge green">62%</span></div>
-        </div>
-        <div class="mock-card" style="--i:1">
-          <div class="mc-row"><div><b>${esc(tr('Lunch'))}</b><div class="mc-sub">${esc(tr('Today'))} &middot; ${esc(tr('Food'))}</div></div><b>RM 12.00</b></div>
-        </div>
-        <div class="pill-row" style="--i:2"><span class="pill">${esc(tr('Can spend per day'))}</span></div>`
-    },
-    {
-      title: 'Where did I put it?',
-      text: 'Use My Items. Save where something is kept and when its warranty ends, then search to find it fast.',
-      art: `
-        <div class="mock-search" style="--i:0">${IC('search')} <span>${esc(tr('closet'))}</span></div>
-        <div class="mock-card" style="--i:1">
-          <div class="mc-row">
-            <div><b>${esc(tr('Camera'))}</b>
-              <div class="mc-tags"><span class="tag loc"><i class="pin">${IC('pin')}</i> ${esc(tr('Closet, 2nd shelf'))}</span></div>
-            </div>
-            <span class="badge green">${esc(tr('In warranty · {n}d', { n: 214 }))}</span>
-          </div>
-        </div>
-        <div class="mock-card" style="--i:2">
-          <div class="mc-row">
-            <div><b>${esc(tr('Spare keys'))}</b>
-              <div class="mc-tags"><span class="tag loc">${IC('pin')} ${esc(tr('Closet, top shelf'))}</span></div>
-            </div>
-            <span class="badge gray">${esc(tr('No warranty'))}</span>
-          </div>
-        </div>`
-    },
-    {
       title: 'Do not miss a payment',
-      text: 'Use Bills & Dates for subscriptions, passport, road tax and insurance. Red = 3 days or less, yellow = within 30 days, green = safe.',
+      text: 'Use Bills & Dates for subscriptions, passport, road tax and insurance. Pick how many days ahead to be reminded, and it shows up on Home. Red = 3 days or less, yellow = within 30 days, green = safe.',
       art: `
         <div class="mock-card" style="--i:0">
           <div class="mc-row"><div><b>Netflix</b><div class="mc-sub">RM 55.00 &middot; ${esc(tr('Monthly'))}</div></div><span class="badge red">${esc(tr('{n}d left', { n: 2 }))}</span></div>
@@ -3504,6 +3546,17 @@
         </div>
         <div class="mock-card" style="--i:2">
           <div class="mc-row"><div><b>${esc(tr('Car insurance'))}</b><div class="mc-sub">RM 1,200.00 &middot; ${esc(tr('Yearly'))}</div></div><span class="badge green">${esc(tr('{n}d left', { n: 90 }))}</span></div>
+        </div>`
+    },
+    {
+      title: 'Two extras, when you need them',
+      text: 'My Items remembers where things are kept and when a warranty ends. Daily Budget shows how much you can spend each day. Both sit lower in the menu.',
+      art: `
+        <div class="mock-card" style="--i:0">
+          <div class="mc-row"><div><b>${esc(tr('Camera'))}</b><div class="mc-tags"><span class="tag loc">${IC('pin')} ${esc(tr('Closet, 2nd shelf'))}</span></div></div><span class="badge green">${esc(tr('In warranty · {n}d', { n: 214 }))}</span></div>
+        </div>
+        <div class="mock-card" style="--i:1">
+          <div class="mc-row"><div><b>${esc(tr('Left this month'))}</b><div class="mc-sub">${esc(tr('RM 1,240 of RM 2,000'))}</div></div><span class="badge green">62%</span></div>
         </div>`
     },
     {
@@ -3593,7 +3646,7 @@
       setTimeout(() => root.remove(), 300);
       if (!manual) {
         // Point at the + button so a first-time user knows where to start.
-        const fab = ui.tab === 'home' ? (matchMedia('(min-width: 900px)').matches ? $('.home-quick') : $('.home-add')) : $('#fab');
+        const fab = ui.tab === 'home' ? null : $('#fab');
         if (fab) {
           fab.classList.add('pulse');
           setTimeout(() => fab.classList.remove('pulse'), 4200);
@@ -3738,7 +3791,7 @@
       const em = Cloud.user && Cloud.user.email;
       $('#sa-av').textContent = em ? em[0].toUpperCase() : '?';
       nm.textContent = em || tr('Not signed in');
-      $('#sa-sub').textContent = em ? tr(SYNC_TEXT[Cloud.state] || 'Not synced') : tr('Tap to sign in and sync');
+      $('#sa-sub').textContent = em ? tr(SYNC_TEXT[Cloud.state] || 'Not synced') : tr('Tap to sign in');
       $('.side-acct').classList.toggle('on', !!em);
     }
   }

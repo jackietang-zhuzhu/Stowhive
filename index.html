@@ -37,24 +37,22 @@
         <div class="top-right">
           <span id="today-label"></span>
           <button type="button" class="help-btn lang-btn" data-action="toggle-lang" aria-label="Language" title="Language / 语言"></button>
-          <button type="button" class="help-btn" data-action="account" aria-label="Account and cloud sync" title="Account and cloud sync"><span data-ic="user"></span></button>
           <button type="button" class="help-btn" data-action="toggle-theme" aria-label="Toggle dark mode"><span data-ic="moon"></span></button>
-          <button type="button" class="help-btn" data-action="show-intro" aria-label="Show the guide" title="Show the guide">?</button>
+          <button type="button" class="help-btn" data-action="account" aria-label="Account and settings" title="Account and settings"><span data-ic="user"></span></button>
         </div>
       </div>
       <div id="summary"></div>
     </header>
 
     <main>
+      <div id="today-tabs" class="subtabs today-tabs" style="display:none">
+        <button type="button" class="subtab active" data-action="tab" data-tab="home" data-i18n="Today">Today</button>
+        <button type="button" class="subtab" data-action="tab" data-tab="work" data-i18n="Daily Work">Daily Work</button>
+      </div>
       <!-- Tab 1: Assets -->
       <!-- Tab 0: Home -->
       <section id="view-home" class="view active">
         <div id="home"></div>
-      </section>
-
-      <!-- Tab: Today (habits, to-do, mood) -->
-      <section id="view-daily" class="view">
-        <div id="daily"></div>
       </section>
 
       <!-- Tab: Daily Work (things to check every day) -->
@@ -110,49 +108,23 @@
 
     <nav class="bottom-nav" data-name="Stowhive">
       <button class="nav-btn active" data-action="tab" data-tab="home">
-        <span class="nav-ico" data-ic="home"></span><span class="nl" data-i18n="Home">Home</span>
+        <span class="nav-ico" data-ic="home"></span><span class="nl" data-i18n="Today">Today</span>
       </button>
-      <button class="nav-btn nav-more-only" data-action="tab" data-tab="daily">
-        <span class="nav-ico" data-ic="check"></span><span class="nl" data-i18n="Routine">Routine</span>
-      </button>
-      <button class="nav-btn nav-more-only" data-action="tab" data-tab="work">
-        <span class="nav-ico" data-ic="briefcase"></span><span class="nl" data-i18n="Daily Work">Daily Work</span>
-      </button>
-      <button class="nav-btn nav-more-only" data-action="tab" data-tab="notes">
+      <button class="nav-btn" data-action="tab" data-tab="notes">
         <span class="nav-ico" data-ic="doc"></span><span class="nl" data-i18n="Notes">Notes</span>
-      </button>
-      <button class="nav-btn nav-more-only" data-action="tab" data-tab="budget">
-        <span class="nav-ico" data-ic="wallet"></span><span class="nl" data-i18n="Daily Budget">Daily Budget</span>
-      </button>
-      <button class="nav-btn" data-action="tab" data-tab="assets">
-        <span class="nav-ico" data-ic="box"></span><span class="nl" data-i18n="My Items">My Items</span>
       </button>
       <button class="nav-btn" data-action="tab" data-tab="renewals">
         <span class="nav-ico" data-ic="bell"></span><span class="nl" data-i18n="Bills & Dates">Bills &amp; Dates</span>
       </button>
+      <button class="nav-btn nav-more-only" data-action="tab" data-tab="assets">
+        <span class="nav-ico" data-ic="box"></span><span class="nl" data-i18n="My Items">My Items</span>
+      </button>
+      <button class="nav-btn nav-more-only" data-action="tab" data-tab="budget">
+        <span class="nav-ico" data-ic="wallet"></span><span class="nl" data-i18n="Daily Budget">Daily Budget</span>
+      </button>
       <button class="nav-btn nav-more" data-action="more" aria-label="More">
         <span class="nav-ico" data-ic="more"></span><span class="nl" data-i18n="More">More</span>
       </button>
-      <div class="rage" id="rage">
-        <div class="rage-pic-wrap">
-          <button type="button" class="rage-pic" data-rage="hit" aria-label="Sting!">
-            <span class="rage-in">
-              <img class="rage-img" alt="" hidden>
-              <span class="rage-ph"><span data-ic="user"></span></span>
-              <span class="rage-marks"></span>
-            </span>
-          </button>
-        </div>
-        <div class="rage-body">
-          <div class="rage-head">
-            <b data-i18n="Vent corner">Vent corner</b>
-            <button type="button" class="rage-btn" data-rage="photo" title="Change photo" data-i18n-title="Change photo"><span data-ic="edit"></span></button>
-          </div>
-          <input class="rage-name" id="rage-name" type="text" maxlength="14" placeholder="Who made you mad?" data-i18n-ph="Who made you mad?" aria-label="Name">
-          <div class="rage-foot"><span id="rage-count"></span><button type="button" class="rage-btn rage-reset" data-rage="reset" title="Reset" data-i18n-title="Reset"><span data-ic="loop"></span></button></div>
-        </div>
-        <input type="file" id="rage-file" accept="image/*" hidden>
-      </div>
       <button type="button" class="side-acct" data-action="account" aria-label="Account and settings">
         <span class="sa-av" id="sa-av">?</span>
         <span class="sa-tx"><b id="sa-name">Not signed in</b><small id="sa-sub">Tap to sign in and sync</small></span>

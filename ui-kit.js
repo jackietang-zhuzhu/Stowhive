@@ -33,6 +33,7 @@
     cal: '<rect x="4" y="5" width="16" height="16" rx="2"/><path d="M4 10h16M8 3v4M16 3v4"/>',
     hourglass: '<path d="M7 3h10M7 21h10M8 3v4l4 5-4 5v4M16 3v4l-4 5 4 5v4"/>',
     gift: '<rect x="4" y="9" width="16" height="11" rx="1"/><path d="M3 9h18V6H3zM12 6v14M12 6c-2-3-5-3-5-1s3 1 5 1zM12 6c2-3 5-3 5-1s-3 1-5 1z"/>',
+    tack: '<path d="M9 3h6l-1 6 3 3v2H7v-2l3-3z"/><path d="M12 14v7"/>',
     pin: '<path d="M12 21s7-6 7-11a7 7 0 10-14 0c0 5 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/>',
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
     flame: '<path d="M12 3c1 4 5 5 5 10a5 5 0 01-10 0c0-2 1-3 2-4 0 2 1 3 2 3 0-4 0-6 1-9z"/>',
@@ -378,7 +379,7 @@
   var wide = window.matchMedia('(min-width: 900px)'), nav = document.querySelector('.bottom-nav'), home = document.getElementById('view-home');
   function place() {
     if (wide.matches) { if (nav && box.parentNode !== nav) nav.insertBefore(box, nav.querySelector('.side-acct')); }
-    else if (home && box.parentNode !== home) home.insertBefore(box, home.firstChild);
+    else if (home && box.parentNode !== home) home.appendChild(box); // phones: below the day's work, not above it
   }
   place();
   if (wide.addEventListener) wide.addEventListener('change', place); else if (wide.addListener) wide.addListener(place);
