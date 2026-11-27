@@ -242,7 +242,8 @@ main { padding: 14px 14px 0; }
 .nav-btn.active::after { transform: scaleX(1); }
 .nl { display: block; max-width: 100%; overflow-wrap: anywhere; line-height: 1.15; text-align: center; }
 .nl small { display: block; margin-top: 1px; font-size: 10px; font-weight: 500; opacity: 0.8; }
-.nav-more-only { display: none; }
+.nav-more-only { display: flex; }
+.nav-more { display: none !important; } /* all pages live in the bar now */
 .side-acct { display: none; } /* desktop sidebar only */
 
 /* Floating add button (phones: round) */

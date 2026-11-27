@@ -106,8 +106,9 @@
   };
   const featOn = k => { const v = featStore()[k]; return typeof v === 'boolean' ? v : featHas[k](); };
   function setFeat(k, on) { const st = featStore(); st[k] = !!on; try { localStorage.setItem(FEAT_KEY, JSON.stringify(st)); } catch (e) { /* ignore */ } }
+  const moreHasItems = () => FEATURES.some(f => f[0] !== 'work' && featOn(f[0]));
   function applyFeatures() {
-    ['assets', 'budget'].forEach(k => $$('.nav-btn[data-tab="' + k + '"]').forEach(b => { b.style.display = featOn(k) ? '' : 'none'; }));
+    ['assets', 'budget'].forEach(k => $$('.nav-btn[data-tab="' + k + '"]').forEach(b => { b.style.display = ''; }));
     const wp = $('#today-tabs [data-tab="work"]'), tt = $('#today-tabs');
     if (wp) wp.style.display = featOn('work') ? '' : 'none';
     if (tt) { tt.style.setProperty('--n', 2); tt.classList.toggle('one', !featOn('work')); }
@@ -3085,6 +3086,7 @@
   const handlers = {
     tab: el => { closeModal(); switchTab(el.dataset.tab); },
     more: () => {
+      if (!moreHasItems()) { handlers['more-settings'](); return; }
       const items = FEATURES.filter(f => f[0] !== 'work' && featOn(f[0])).map(f => [f[0], f[1], f[2], f[3], 'more-go']);
       items.push(['', 'user', 'Settings', 'Features, language, theme, backup', 'more-settings']);
       openModal('More', `<div class="tiles">${items.map(x => `<button type="button" class="tile ${ui.tab === x[0] ? 'sel' : ''}" data-action="${x[4]}" data-tab="${x[0]}"><span class="ti">${IC(x[1])}</span><span class="tl">${esc(tr(x[2]))}</span><small>${esc(tr(x[3]))}</small></button>`).join('')}</div>`);
