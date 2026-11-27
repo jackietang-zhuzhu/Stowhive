@@ -430,6 +430,26 @@
     var b = e.target.closest && e.target.closest('[data-action="toggle-theme"], [data-action="toggle-lang"]');
     if (!b || busy || reduce) return;
     var root = document.documentElement;
+    // Phones and tablets: the fancy effects below are too heavy there (hundreds of animated text spans, full-page
+    // snapshots over blurred layers), so they stutter. Use something very light instead:
+    //   theme    -> switches instantly, nothing animates
+    //   language -> one quick fade of the whole page while the words swap
+    if (window.matchMedia && (matchMedia('(max-width: 899px)').matches || matchMedia('(pointer: coarse)').matches)) {
+      if (b.getAttribute('data-action') !== 'toggle-lang') return; // theme: app.js handles the click, no transition
+      var page = document.getElementById('app');
+      if (!page || !page.animate) return;
+      e.stopImmediatePropagation(); busy = true;
+      var fadeOut = page.animate([{ opacity: 1 }, { opacity: 0.15 }], { duration: 110, easing: 'ease-in', fill: 'forwards' });
+      var finish = function () {
+        b.click(); // busy is true, so this goes straight to app.js and swaps the language
+        var fadeIn = page.animate([{ opacity: 0.15 }, { opacity: 1 }], { duration: 170, easing: 'ease-out' });
+        fadeOut.cancel();
+        var free = function () { busy = false; };
+        fadeIn.finished.then(free, free);
+      };
+      fadeOut.finished.then(finish, finish);
+      return;
+    }
     if (b.getAttribute('data-action') === 'toggle-lang') {
       // Language: the words roll like a counter. Old words slide up and fade, new words rise from below,
       // top of the screen first, like a wave. Cards, bars and icons never move.
