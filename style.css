@@ -1846,3 +1846,19 @@ html.vt-theme::view-transition-new(root) { z-index: 2; }
   .sum-card { height: 80px; padding: 6px 18px; }
   .sum-big, .sum-big.small { margin-bottom: 2px; }
 }
+
+/* Fix: expanded cards overlapped the next card on desktop.
+   #asset-list is a grid inside a fixed-height scroll area, and .card has overflow:hidden, so the grid was
+   allowed to squeeze each row down to the collapsed card height instead of letting the list scroll.
+   max-content rows always fit the card's real content. */
+.list { grid-auto-rows: max-content; }
+
+/* Fix: calendar day numbers drifted left on days with a mood face.
+   Mood days stack vertically (flex-direction: column), where align-items is the horizontal axis,
+   so the earlier "align-items: flex-start" pushed them to the left edge. Centre them, and give every
+   day the same top padding so all the numbers sit on the same line. */
+.cal-day, .cal-day.has-mood { padding-top: 5px; }
+.cal-day.has-mood { align-items: center; }
+
+/* Settings sheet rebuilt in place (a switch was tapped): no entrance animation, so it does not blink. */
+.modal-backdrop.no-anim, .modal-backdrop.no-anim .sheet { animation: none; }

@@ -421,6 +421,7 @@
     ui.dayModal = null;
     $('#modal-root').innerHTML = '';
     document.body.classList.remove('modal-open');
+    if (ui.homeDirty) { ui.homeDirty = false; try { renderHome(); } catch (e) { /* ignore */ } }
   }
 
   /* ------------------------------------------------------------------ */
@@ -1586,7 +1587,7 @@
           <div class="card-side with-chev">${warrantyRing(a)}${warrantyBadge(a)}<span class="chev" aria-hidden="true"></span></div>
         </div>
         <div class="detail">
-          <div class="kv"><span>${esc(tr('Category'))}</span><b>${esc(a.category || '-')}</b></div>
+          <div class="kv"><span>${esc(tr('Category'))}</span><b>${esc(a.category ? tr(a.category) : '-')}</b></div>
           <div class="kv"><span>${esc(tr('Purchased'))}</span><b>${esc(fmtDate(a.purchaseDate))}</b></div>
           <div class="kv"><span>${esc(tr('Price'))}</span><b>${a.price !== '' && a.price != null ? esc(money(a.price)) : '-'}</b></div>
           <div class="kv"><span>${esc(tr('Warranty until'))}</span><b>${esc(fmtDate(a.warrantyExpiry))}</b></div>
@@ -2481,16 +2482,6 @@
       <h4>${esc(tr('Settings'))}</h4>
       <p class="card-sub">${esc(tr('Pages you do not need can be turned off. Your data is kept.'))}</p>
       ${FEATURES.map(f => `<div class="set-row"><span>${esc(tr(f[2]))}</span><div class="seg"><button type="button" class="${featOn(f[0]) ? 'on' : ''}" data-action="set-feat" data-feat="${f[0]}" data-on="1">${esc(tr('On'))}</button><button type="button" class="${featOn(f[0]) ? '' : 'on'}" data-action="set-feat" data-feat="${f[0]}" data-on="0">${esc(tr('Off'))}</button></div></div>`).join('')}
-      <div class="set-row"><span>${esc(tr('Language'))}</span>
-        <div class="seg">
-          <button type="button" class="${window.L.lang === 'en' ? 'on' : ''}" data-action="set-lang" data-lang="en">English</button>
-          <button type="button" class="${window.L.lang === 'zh' ? 'on' : ''}" data-action="set-lang" data-lang="zh">&#20013;&#25991;</button>
-        </div></div>
-      <div class="set-row"><span>${esc(tr('Theme'))}</span>
-        <div class="seg">
-          <button type="button" class="${isDark() ? '' : 'on'}" data-action="set-theme" data-theme="light">${esc(tr('Light'))}</button>
-          <button type="button" class="${isDark() ? 'on' : ''}" data-action="set-theme" data-theme="dark">${esc(tr('Dark'))}</button>
-        </div></div>
       <div class="set-row"><span>${esc(tr('Page help'))}</span>
         <div class="seg">
           <button type="button" class="${helpShown() ? 'on' : ''}" data-action="set-help" data-on="1">${esc(tr('Show'))}</button>
@@ -3098,7 +3089,7 @@
       setFeat(k, el.dataset.on === '1');
       applyFeatures();
       if (!featOn(k) && ui.tab === k) switchTab('home');
-      renderHome();
+      ui.homeDirty = true; // the page behind the sheet is refreshed when the sheet closes
       accTabKey = 'set'; openAccount();
     },
     'more-go': el => { closeModal(); switchTab(el.dataset.tab); },
@@ -3595,7 +3586,7 @@
       done();
     };
     el.addEventListener('click', end); // tap to skip
-    setTimeout(end, reduce ? 700 : (firstVisit ? 2500 : 1500));
+    setTimeout(end, reduce ? 1000 : (firstVisit ? 3500 : 2500));
   }
 
   function openIntro(manual) {
@@ -3614,7 +3605,7 @@
             ${INTRO_SLIDES.map(s => `
               <section class="intro-slide">
                 <div class="intro-art-wrap"><div class="art">${s.art}</div></div>
-                <div class="intro-copy"><h2>${esc(tr(s.title, { app: APP_NAME }))}</h2><p>${esc(tr(s.text))}</p></div>
+                <div class="intro-copy"><h2>${esc(tr(s.title, { app: tr(APP_NAME) }))}</h2><p>${esc(tr(s.text))}</p></div>
               </section>`).join('')}
           </div>
         </div>
@@ -3836,7 +3827,16 @@
     const panes = [['acct', tr(label), html.slice(0, iS)], ['set', tr('Settings'), html.slice(iS, iB)], ['bk', tr('Backup'), html.slice(iB)]];
     const wrapped = `<div class="acc-tabs">${panes.map(p => `<button type="button" class="${p[0] === accTabKey ? 'on' : ''}" data-action="acc-tab" data-pane="${p[0]}">${esc(p[1])}</button>`).join('')}</div>
       ${panes.map(p => `<div class="acc-pane ${p[0] === accTabKey ? 'on' : ''}" data-pane="${p[0]}">${p[2]}</div>`).join('')}`;
+    // Re-opening while the sheet is already showing (a switch was tapped) rebuilds it quietly:
+    // no fade/slide replay and the scroll position stays, so nothing blinks.
+    const prev = $('#modal-root .sheet[data-kind="account"]');
+    const keep = prev ? prev.scrollTop : 0;
     openModal(tr('Account'), wrapped, onMount);
+    const sh = $('#modal-root .sheet');
+    if (sh) {
+      sh.dataset.kind = 'account';
+      if (prev) { $('#modal-root .modal-backdrop').classList.add('no-anim'); sh.scrollTop = keep; }
+    }
   }
 
   function openAccount() {
@@ -3954,14 +3954,24 @@
     setTimeout(() => s.remove(), 650);
   }, { passive: true });
 
-  document.title = APP_NAME;
-  $('.top h1').textContent = APP_NAME;
-  $('.bottom-nav').dataset.name = APP_NAME;
+  // The product name follows the language (English: Stowhive, Chinese: 巢记). Keeps the logo mark inside the heading.
+  function applyAppName() {
+    const n = tr(APP_NAME);
+    document.title = n;
+    const h1 = $('.top h1');
+    if (h1) {
+      let tn = [...h1.childNodes].reverse().find(x => x.nodeType === 3);
+      if (!tn) { tn = document.createTextNode(''); h1.appendChild(tn); }
+      tn.textContent = n;
+    }
+    $('.bottom-nav').dataset.name = n;
+  }
+  applyAppName();
   applyTheme(isDark());
   window.L.apply();
   renderAll();
   switchTab('home');
-  window.L.onChange(() => { const y = window.scrollY; renderAll(); switchTab(ui.tab); window.scrollTo({ top: y }); updateAccountBtn(); });
+  window.L.onChange(() => { applyAppName(); const y = window.scrollY; renderAll(); switchTab(ui.tab); window.scrollTo({ top: y }); updateAccountBtn(); });
   Cloud.init();
   // Pick up changes made on another device whenever this tab comes back into view.
   document.addEventListener('visibilitychange', () => {
